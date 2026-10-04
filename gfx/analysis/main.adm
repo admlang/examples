@@ -1,0 +1,205 @@
+// Runs every image analysis of std.gfx.processing.analysis on one picture
+// and prints what each found: where the subject is, the picture's colours
+// and brightness, a BlurHash placeholder, perceptual hashes, and the
+// keypoints that let a changed copy be recognised.
+//
+//   adm run --release gfx/analysis/main.adm -- photo.jpg out
+//
+// The arguments are the picture and a folder for the pictures the analysis
+// produces: the saliency map, the picture with its subject framed, the
+// subject alone, and the picture with its keypoints marked.
+application Analysis {
+	use (
+		std.formats.image
+		std.gfx.color::(Color, ColorFormat, RGBA)
+		std.gfx.processing.analysis
+		std.gfx.processing.analysis::(Features, HashAlgorithm)
+		std.gfx.processing.transform::(Axis, ResizeMode, crop, flip, resize)
+		std.math.geom::(Point, Rectangle, Size)
+		std.os
+	)
+
+	// The program's entry point. Fails when the picture cannot be read or is
+	// not an image, or a result cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: analysis INPUT OUTPUT_FOLDER")
+			return 1
+		}
+		let img = try image.load(args[1])
+		let out = args[2]
+		try os.mkdir(out) unless try os.exists(out)
+
+		let size = img.size()
+		println("{args[1]}: {size.width}x{size.height}")
+		println("")
+
+		try subject(img, out)
+		colours(img)
+		brightness(img)
+		placeholder(img)
+		hashes(img)
+		try keypoints(img, out)
+		return 0
+	}
+
+	// Where the subject is. `saliency` turns a picture into a map of what
+	// stands out, `salientRegion` gives the square around it.
+	def subject(img image.Image, out string) !none {
+		println("Subject")
+
+		// The analysis functions that return a picture change the one they
+		// are given, so each works on a copy.
+		let map = img.copy()
+		analysis.saliency(map)
+		try map.save(os.join(out, "saliency.png"))
+		println("  saliency map         {os.join(out, "saliency.png")}")
+
+		let region = analysis.salientRegion(img)
+		println("  salient region       {region.size.width}x{region.size.height} at ({region.left()}, {region.top()})")
+
+		let framed = img.copy()
+		outline(framed, region, new Color(RGBA{r: 255, g: 40, b: 40, a: 255}))
+		try framed.save(os.join(out, "region.jpg"))
+		println("  framed               {os.join(out, "region.jpg")}")
+
+		let alone = img.copy()
+		crop(alone, region)
+		try alone.save(os.join(out, "subject.jpg"))
+		println("  cropped              {os.join(out, "subject.jpg")}")
+		println("")
+		return none
+	}
+
+	// The picture's colours: the mean of all pixels, the most common colour,
+	// and whether any pixel is transparent.
+	def colours(img image.Image) {
+		println("Colours")
+		println("  average              {analysis.averageColor(img).css(ColorFormat.RGB)}")
+		println("  dominant             {analysis.dominantColor(img).css(ColorFormat.RGB)}")
+		println("  opaque               {analysis.isOpaque(img)}")
+		println("")
+	}
+
+	// How bright the picture is. `histogram` counts the pixels at each of
+	// the 256 levels of red, green, blue, alpha and luminance; this prints
+	// luminance in sixteen ranges, darkest first.
+	def brightness(img image.Image) {
+		println("Brightness (share of pixels per range of luminance)")
+		let levels = analysis.histogram(img).luminance
+		let ranges uint64[]
+		let total = uint64(0)
+		let largest = uint64(1)
+		for let r = 0; r < 16; r++ {
+			let count = uint64(0)
+			for let i = r * 16; i < (r + 1) * 16; i++ {
+				count += levels[i]
+			}
+			ranges.push(count)
+			total += count
+			largest = largest.max(count)
+		}
+		for let (r, count) in ranges {
+			let bar = "#".repeat(int(count * uint64(40) / largest))
+			let share = "%5.1f".format(float(count) * 100.0 / float(total))
+			println("  {"%3d".format(r * 16)}-{"%3d".format(r * 16 + 15)}  {share}%  {bar}")
+		}
+		println("")
+	}
+
+	// A BlurHash: about thirty characters that decode to a blurred version
+	// of the picture, to show while the real one loads.
+	def placeholder(img image.Image) {
+		println("Placeholder")
+		println("  BlurHash             {string(analysis.blurHash(img))}")
+		println("")
+	}
+
+	// Perceptual hashes: 64 bits that stay nearly the same when the picture
+	// is resized, recompressed or recoloured, so two files can be compared
+	// without their pixels. `similarity` is the share of equal bits.
+	def hashes(img image.Image) {
+		println("Perceptual hashes")
+		println("  average              {analysis.hash(img, HashAlgorithm.Average).hex().lower()}")
+		println("  difference           {analysis.hash(img, HashAlgorithm.Difference).hex().lower()}")
+		println("  perceptual           {analysis.hash(img, HashAlgorithm.Perceptual).hex().lower()}")
+		println("  wavelet              {analysis.hash(img, HashAlgorithm.Wavelet).hex().lower()}")
+		println("")
+
+		println("Similarity to changed copies (perceptual hash, 1.00 is identical)")
+		println("  half the size        {"%.2f".format(analysis.similarity(img, halved(img), HashAlgorithm.Perceptual))}")
+		println("  mirrored             {"%.2f".format(analysis.similarity(img, mirrored(img), HashAlgorithm.Perceptual))}")
+		println("  turned a quarter     {"%.2f".format(analysis.similarity(img, turned(img), HashAlgorithm.Perceptual))}")
+		println("")
+	}
+
+	// Keypoints: corners that are found again after the picture is scaled,
+	// turned, mirrored or cropped. `compare` matches two sets and scores how
+	// much of what both pictures show agrees, which recognises the copies
+	// the hashes above cannot.
+	def keypoints(img image.Image, out string) !none {
+		println("Keypoints")
+		let found = analysis.features(img, 500)
+		println("  found                {found.len()}")
+
+		let marked = img.copy()
+		for let (_, k) in found.keypoints {
+			let side = 5
+			let corner = new Point<int>(int(k.x) - side / 2, int(k.y) - side / 2)
+			let spot = new Rectangle<int>(position = corner, size = new Size<int>(side, side))
+			outline(marked, spot, new Color(RGBA{r: 60, g: 255, b: 90, a: 255}))
+		}
+		try marked.save(os.join(out, "keypoints.jpg"))
+		println("  marked               {os.join(out, "keypoints.jpg")}")
+		println("")
+
+		println("Match with changed copies (keypoints, 1.00 is a full match)")
+		report("half the size", found, halved(img))
+		report("mirrored", found, mirrored(img))
+		report("turned a quarter", found, turned(img))
+		let alone = img.copy()
+		crop(alone, analysis.salientRegion(img))
+		report("subject only", found, alone)
+		return none
+	}
+
+	// Prints how well a changed copy matches the original's keypoints.
+	def report(label string, original Features, copy image.Image) {
+		let m = original.compare(analysis.features(copy, 500))
+		println("  {"%-20s".format(label)} {"%.2f".format(m.score)}  ({m.inliers} keypoints agree)")
+	}
+
+	// A copy at half the width and height.
+	def halved(img image.Image) image.Image {
+		let copy = img.copy()
+		resize(copy, new Size<uint>(img.size().width / 2, img.size().height / 2), ResizeMode.Area)
+		return copy
+	}
+
+	// A copy mirrored left to right.
+	def mirrored(img image.Image) image.Image {
+		let copy = img.copy()
+		flip(copy, Axis.Horizontal)
+		return copy
+	}
+
+	// A copy turned a quarter clockwise.
+	def turned(img image.Image) image.Image {
+		return img.copy().rotate(90.0)
+	}
+
+	// Draws the outline of `r` on the picture, three pixels thick, leaving
+	// out what falls outside it.
+	def outline(img image.Image, r Rectangle<int>, c Color) {
+		for let t = 0; t < 3; t++ {
+			for let x = r.left() + t; x < r.right() - t; x++ {
+				img.setPixel(x, r.top() + t, c) onerror recover none
+				img.setPixel(x, r.bottom() - 1 - t, c) onerror recover none
+			}
+			for let y = r.top() + t; y < r.bottom() - t; y++ {
+				img.setPixel(r.left() + t, y, c) onerror recover none
+				img.setPixel(r.right() - 1 - t, y, c) onerror recover none
+			}
+		}
+	}
+}

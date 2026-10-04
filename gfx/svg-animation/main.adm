@@ -1,0 +1,100 @@
+// Plays an animated SVG in a window, scaled to fit, until the window is
+// closed. Given an output directory, it writes the animation as PNG frames
+// instead, without a window.
+//
+//   adm run gfx/svg-animation/main.adm                                plays orbit.svg
+//   adm run gfx/svg-animation/main.adm -- some.svg                    plays another file
+//   adm run gfx/svg-animation/main.adm -- some.svg frames/            writes 10 seconds of frames
+//   adm run gfx/svg-animation/main.adm -- some.svg frames/ 3          writes 3 seconds
+//
+// Frames are written at 25 a second, as frames/frame-0000.png and on.
+application SvgAnimation {
+	use (
+		std.formats.image::(SVG)
+		std.gfx.color::(Color)
+		std.os
+		std.time
+		std.ui.renderer::(PlatformEventKind, WindowConfig)
+		std.ui.renderer.opengl::(OpenGLRenderer)
+	)
+
+	// The program's entry point: `args[1]` is the SVG file, `args[2]` an
+	// output directory and `args[3]` a number of seconds, all optional.
+	// Fails when the file cannot be read or is not an SVG document, the
+	// window cannot be opened, or a frame cannot be written.
+	def new(args string[]) !int {
+		let path = args.len() > 1 ?? (args[1], "gfx/svg-animation/orbit.svg")
+		if args.len() > 2 {
+			let seconds = args.len() > 3 ?? (args[3].toInt<int>(), 10)
+			try writeFrames(path, args[2], seconds)
+		} else {
+			try play(path)
+		}
+		return 0
+	}
+
+	// Shows the document at `path` in a window until the window is closed.
+	// Fails when the file cannot be read or is not an SVG document, or the
+	// window cannot be opened or drawn to.
+	def play(path string) !none {
+		let data = try os.readFile(path)
+		let svg = new SVG()
+		// The size the document asks to be drawn at.
+		let info = try svg.info(data)
+		let (width, height) = (info.size.width, info.size.height)
+
+		let renderer = new OpenGLRenderer()
+		let window = try renderer.openWindow(new WindowConfig("{os.base(path)} — SVG animation", width, height))
+		let (viewWidth, viewHeight) = (width, height)
+		let start = time.now()
+
+		// One turn of this loop is one frame on screen.
+		for {
+			for let (_, event) in try renderer.pollEvents(window) {
+				if event.kind == PlatformEventKind.Close {
+					try renderer.closeWindow(window)
+					return none
+				}
+				if event.kind == PlatformEventKind.Resize {
+					viewWidth = event.size.width
+					viewHeight = event.size.height
+				}
+			}
+
+			// The document as it shows at this moment of the animation, as
+			// a recording of drawing commands rather than pixels, so it
+			// stays sharp at any window size.
+			let picture = try svg.picture(data, time.now().since(start))
+
+			let frame = try renderer.nextFrame(window)
+			let ctx = frame.ctx
+			ctx.clear(new Color("#FFFFFF"))
+			// Scale the document to fit the window, and centre it.
+			let scale = (viewWidth / width).min(viewHeight / height)
+			ctx.save()
+			ctx.translate((viewWidth - width * scale) / 2.0, (viewHeight - height * scale) / 2.0)
+			ctx.scale(scale, scale)
+			picture.replay(ctx)
+			ctx.restore()
+			try renderer.commit(window, frame)
+		}
+	}
+
+	// Writes the first `seconds` of the animation into `dir` as numbered
+	// PNG files, 25 for each second. Fails when the file cannot be read or
+	// is not an SVG document, or a frame cannot be written.
+	def writeFrames(path string, dir string, seconds int) !none {
+		let rate = 25
+		let svg = new SVG()
+		// `mkdir` fails when the directory is already there, which is fine.
+		os.mkdir(dir) onerror recover none
+
+		for let i = 0; i < seconds * rate; i++ {
+			// `decode` with a time draws the document as it shows then.
+			let img = try svg.decode(path, 1s * (float(i) / float(rate)))
+			try img.save(os.join(dir, "frame-{i.str().padStart(4, "0")}.png"))
+		}
+		println("{seconds * rate} frames written to {dir}")
+		return none
+	}
+}

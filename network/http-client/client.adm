@@ -1,0 +1,34 @@
+// Fetches a web address and prints the reply: the status, a few headers
+// and the start of the body.
+//
+//   adm run network/http-client/client.adm                            fetches https://example.com
+//   adm run network/http-client/client.adm -- https://adm-lang.dev    fetches another address
+application httpClient {
+	use std.net.http
+
+	// The program's entry point: `args[1]` is the address, optional. Fails
+	// when the address is not valid, the server cannot be reached, or the
+	// reply cannot be read.
+	def new(args string[]) !int {
+		let address = args.len() > 1 ?? (args[1], "https://example.com")
+
+		// `get` sends the request, follows redirects, and returns once the
+		// status and headers have arrived.
+		let response = try http.get(address)
+		println("{response.proto} {response.status} {response.reason}")
+		println("content type: {response.header("Content-Type")}")
+		println("server:       {response.header("Server")}")
+
+		// The body is read from the connection when asked for.
+		let body = try response.text()
+		// Closing gives the connection back, so a later request can reuse it.
+		try response.close()
+
+		println("body:         {body.len()} characters")
+		println("")
+		println(body.len() > 400 ?? (body.slice(0, 400) + "...", body))
+
+		// A status from 200 to 299 is a success.
+		return response.ok() ?? (0, 1)
+	}
+}

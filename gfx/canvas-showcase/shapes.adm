@@ -1,0 +1,162 @@
+// Scenes about geometry: paths and strokes, borders, path booleans,
+// morphing and trimming.
+internal partial module showcase.scenes {
+	use (
+		std.gfx.canvas::*
+		std.math::(Pi)
+		std.math.geom::(Corners, Edges, FillRule, Line, LineCap, LineJoin, Path, Point, StrokeStyle)
+		std.units::(Pixels)
+		showcase.kit::*
+	)
+
+	// Paths: fill rules, curves, rounded corners. Strokes: caps, joins,
+	// dashes, and widths that ignore the transform.
+	def paths(p Painter, f Faces) {
+		p.fill(star(new Point(90.0, 110.0), 70.0), blue, FillRule.NonZero)
+		caption(p, "non-zero", 90.0, 205.0, f)
+		p.fill(star(new Point(250.0, 110.0), 70.0), blue, FillRule.EvenOdd)
+		caption(p, "even-odd", 250.0, 205.0, f)
+
+		let curves = new Path().moveTo(340.0, 170.0)
+		curves.cubicTo(360.0, 20.0, 470.0, 200.0, 500.0, 50.0)
+		curves.quadTo(540.0, 160.0, 580.0, 60.0)
+		p.stroke(curves, red, StrokeStyle{width: 5(px), cap: LineCap.Round})
+		caption(p, "cubic and quadratic curves", 460.0, 205.0, f)
+
+		p.fill(rounded(box(620.0, 40.0, 760.0, 170.0), 24(px)), green)
+		p.fill(new Path().ellipse(new Point(830.0, 105.0), 50.0, 70.0, Pi / 8.0), amber)
+		caption(p, "round rect, rotated ellipse", 740.0, 205.0, f)
+
+		// Caps and joins on the same zig-zag; the thin line is the path itself.
+		let caps = [LineCap.Butt, LineCap.Round, LineCap.Square]
+		let joins = [LineJoin.Miter, LineJoin.Round, LineJoin.Bevel]
+		for let (i, cap) in caps {
+			let x = 60.0 + float(i) * 170.0
+			let zigzag = new Path().moveTo(x, 330.0).lineTo(x + 40.0, 250.0).lineTo(x + 80.0, 330.0).lineTo(x + 120.0, 250.0)
+			p.stroke(zigzag, ink, StrokeStyle{width: 16(px), cap: cap, join: joins[i]})
+			p.stroke(zigzag, marker, StrokeStyle{width: 1(px)})
+			caption(p, "{cap.name} cap, {joins[i].name} join", x + 60.0, 365.0, f)
+		}
+
+		// Dashes, and an arc dotted by zero-length dashes with round caps.
+		let dashed = StrokeStyle{width: 4(px), dash: [18(px), 8(px), 4(px), 8(px)]}
+		p.stroke(new Line(new Point(580.0, 260.0), new Point(860.0, 260.0)), ink, dashed)
+		let dotted = StrokeStyle{width: 6(px), cap: LineCap.Round, dash: [0(px), 14(px)]}
+		p.stroke(new Path().arc(new Point(720.0, 330.0), 60.0, Pi, 2.0 * Pi), blue, dotted)
+		caption(p, "dashes and dots", 720.0, 365.0, f)
+
+		// The same square scaled up: its stroke grows, unless fixedWidth.
+		for let i = 0; i < 4; i++ {
+			let k = 1.0 + float(i) * 0.6
+			p.save()
+			p.translate(80.0 + float(i) * 200.0, 470.0)
+			p.scale(k, k)
+			p.stroke(box(-25.0, -25.0, 25.0, 25.0), green, StrokeStyle{width: 3(px)})
+			p.stroke(box(-15.0, -15.0, 15.0, 15.0), red, StrokeStyle{width: 1(px), fixedWidth: true})
+			p.restore()
+		}
+		caption(p, "strokes scale with the transform; fixedWidth ones (red) stay one pixel", 450.0, 545.0, f)
+	}
+
+	// Borders: every LineStyle, a width and paint per side, rounded corners.
+	def borders(p Painter, f Faces) {
+		let styles = [
+			LineStyle.Solid, LineStyle.Dashed, LineStyle.Dotted, LineStyle.Double,
+			LineStyle.Groove, LineStyle.Ridge, LineStyle.Inset, LineStyle.Outset,
+		]
+		for let (i, lineStyle) in styles {
+			let x = 40.0 + float(i % 4) * 210.0
+			let y = 30.0 + float(i / 4) * 130.0
+			let border = Border{width: 8(px), paint: blue, lineStyle: lineStyle}
+			p.stroke(box(x, y, x + 190.0, y + 90.0), new Edges<Border>(border))
+			caption(p, lineStyle.name, x + 95.0, y + 112.0, f)
+		}
+
+		// A width and colour per side; the corners split on the diagonal.
+		let sides = new Edges<Border>(
+			Border{width: 4(px), paint: red},
+			Border{width: 12(px), paint: green},
+			Border{width: 20(px), paint: blue},
+			Border{width: 8(px), paint: amber}
+		)
+		p.stroke(box(40.0, 300.0, 230.0, 420.0), sides)
+		caption(p, "a width and paint per side", 135.0, 442.0, f)
+		p.stroke(box(250.0, 300.0, 440.0, 420.0), sides, new Corners<Pixels>(36(px)))
+		caption(p, "rounded", 345.0, 442.0, f)
+
+		let dashed = Border{width: 3(px), paint: ink, lineStyle: LineStyle.Dashed}
+		p.stroke(box(460.0, 300.0, 650.0, 420.0), new Edges<Border>(dashed), new Corners<Pixels>(24(px)))
+		let dotted = Border{width: 6(px), paint: rgb(130, 60, 170), lineStyle: LineStyle.Dotted}
+		p.stroke(box(670.0, 300.0, 860.0, 420.0), new Edges<Border>(dotted), new Corners<Pixels>(50(px), 12(px)))
+		caption(p, "dashes and dots around rounded corners", 660.0, 442.0, f)
+
+		let sunset = linear(new Point(40.0, 0.0), new Point(440.0, 0.0), [rgb(255, 90, 20), rgb(90, 20, 255)])
+		let ridge = Border{width: 10(px), paint: sunset, lineStyle: LineStyle.Ridge}
+		p.stroke(box(40.0, 470.0, 440.0, 530.0), new Edges<Border>(ridge), new Corners<Pixels>(14(px)))
+		caption(p, "any paint: a gradient ridge", 240.0, 552.0, f)
+
+		let rule = Border{width: 2(px), paint: ink}
+		let nothing = Border{width: 0(px), paint: ink, lineStyle: LineStyle.None}
+		p.stroke(box(460.0, 470.0, 860.0, 530.0), new Edges<Border>(rule, nothing))
+		caption(p, "top and bottom only (left and right None)", 660.0, 552.0, f)
+	}
+
+	// Path booleans: the four operators on a circle and a rounded square, a
+	// word's outline cut by a circle, and a ring with a bite.
+	def booleans(p Painter, f Faces) {
+		let names = ["a | b  (unite)", "a & b  (intersect)", "a - b  (subtract)", "a ^ b  (xor)"]
+		let outline = StrokeStyle{width: 1(px), dash: [4(px), 3(px)]}
+		for let (i, name) in names {
+			let x = 40.0 + float(i) * 215.0
+			let a = new Path().circle(new Point(x + 70.0, 100.0), 60.0)
+			let b = rounded(box(x + 60.0, 60.0, x + 180.0, 170.0), 18(px))
+			p.stroke(a, grey, outline)
+			p.stroke(b, grey, outline)
+			let result = [a | b, a & b, a - b, a ^ b][i]
+			p.fill(result, rgb(52, 101, 200, 200))
+			p.stroke(result, ink, StrokeStyle{width: 1.5(px)})
+			caption(p, name, x + 100.0, 200.0, f)
+		}
+
+		// Text as outlines, minus a circle, plus a bar: one path.
+		let word = p.textPath("Boolean", new Point(60.0, 330.0), TextStyle{face: f.text, size: 110(px)})
+		let hole = new Path().circle(new Point(300.0, 290.0), 55.0)
+		let bar = rounded(box(60.0, 345.0, 520.0, 360.0), 7(px))
+		p.fill((word - hole) | bar, linear(new Point(60.0, 0.0), new Point(520.0, 0.0), [red, orange]))
+		caption(p, "text outlines minus a circle, plus a bar, as one path", 290.0, 395.0, f)
+
+		let centre = new Point(700.0, 300.0)
+		let ring = new Path().circle(centre, 70.0).subtract(new Path().circle(centre, 40.0))
+		p.fill(ring.subtract(new Path().circle(new Point(760.0, 260.0), 45.0)), green)
+		caption(p, "a ring with a bite", 700.0, 395.0, f)
+	}
+
+	// Shapes in motion: a square morphing into a star, and a curve trimmed
+	// as if it were being drawn.
+	def motion(p Painter, f Faces) {
+		for let i = 0; i < 6; i++ {
+			let t = float(i) / 5.0
+			let x = 90.0 + float(i) * 145.0
+			let square = new Path().rect(box(x - 50.0, 50.0, x + 50.0, 150.0))
+			let target = starOutline(new Point(x, 105.0), 64.0, 27.0)
+			p.fill(square.morph(target, t), blue)
+			caption(p, "t = {"%.1f".format(t)}", x, 185.0, f)
+		}
+		caption(p, "Path.morph(target, t): a square becoming a star", 450.0, 210.0, f)
+
+		let curve = new Path().moveTo(0.0, 60.0)
+		curve.cubicTo(30.0, -20.0, 90.0, 140.0, 120.0, 40.0)
+		curve.quadTo(140.0, -10.0, 170.0, 50.0)
+		for let i = 0; i < 4; i++ {
+			let x = 40.0 + float(i) * 215.0
+			let percent = 25 * (i + 1)
+			p.save()
+			p.translate(x, 240.0)
+			p.stroke(curve, grey, StrokeStyle{width: 2(px), dash: [4(px), 4(px)]})
+			p.stroke(curve.trimmed(0(%), float(percent) * 1(%)), red, StrokeStyle{width: 6(px), cap: LineCap.Round})
+			p.restore()
+			caption(p, "{percent}%", x + 85.0, 360.0, f)
+		}
+		caption(p, "Path.trimmed(from, to): the part between two lengths", 450.0, 385.0, f)
+	}
+}

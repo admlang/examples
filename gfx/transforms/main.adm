@@ -1,0 +1,115 @@
+// Applies every transform of std.gfx.processing.transform to one picture
+// and saves each result: mirroring, resizing with each algorithm, cropping,
+// padding, trimming, and fitting into a box in each of the ten ways.
+//
+//   adm run --release gfx/transforms/main.adm -- photo.jpg out
+//
+// The arguments are the picture and a folder for the results, one file per
+// transform. The picture is first scaled down to 300 pixels wide so the
+// results stay small.
+application Transforms {
+	use (
+		std.formats.image
+		std.gfx.color::(Color, RGBA)
+		std.gfx.processing.analysis::(isOpaque)
+		std.gfx.processing.transform
+		std.gfx.processing.transform::(Axis, FitMode, ResizeMode)
+		std.math.geom::(Point, Rectangle, Size)
+		std.os
+	)
+
+	// The program's entry point. Fails when the picture cannot be read or is
+	// not an image, or a result cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: transforms INPUT OUTPUT_FOLDER")
+			return 1
+		}
+		let photo = try image.load(args[1])
+		let out = args[2]
+		try os.mkdir(out) unless try os.exists(out)
+
+		// Every transform works on its own copy of this small version. A
+		// transform changes the picture it is given; `apply`, below, runs
+		// one on a copy and saves it.
+		let width = 300
+		let height = int(photo.size().height) * width / int(photo.size().width)
+		transform.resize(photo, new Size<uint>(uint(width), uint(height)), ResizeMode.Area)
+		try apply(photo, out, "original", (img) => img)
+
+		// Mirroring.
+		try apply(photo, out, "flip-horizontal", (img) => transform.flip(img, Axis.Horizontal))
+		try apply(photo, out, "flip-vertical", (img) => transform.flip(img, Axis.Vertical))
+
+		// Cropping: to a rectangle of your choice, or to a size around the
+		// subject, which `smartCrop` finds by itself.
+		let window = new Rectangle<int>(position = new Point<int>(150, 10), size = new Size<int>(140, 180))
+		try apply(photo, out, "crop", (img) => transform.crop(img, window))
+		try apply(photo, out, "smart-crop", (img) => transform.smartCrop(img, 150, 150))
+
+		// Padding adds a border: transparent, or of one colour.
+		let navy = new Color(RGBA{r: 20, g: 40, b: 80, a: 255})
+		try apply(photo, out, "pad", (img) => transform.pad(img, 20))
+		try apply(photo, out, "pad-colour", (img) => transform.pad(img, 20, navy))
+
+		// Trimming removes the transparent rows and columns around a
+		// picture, which undoes the transparent border.
+		let padded = photo.copy()
+		transform.pad(padded, 20)
+		let before = padded.size()
+		transform.trim(padded)
+		println("trim                                          {before.width}x{before.height} -> {padded.size().width}x{padded.size().height}")
+
+		// Resizing. The algorithms differ most when enlarging, so each one
+		// enlarges the same small detail four times.
+		let detail = photo.copy()
+		transform.crop(detail, new Rectangle<int>(position = new Point<int>(195, 75), size = new Size<int>(50, 50)))
+		let larger = new Size<uint>(uint(200), uint(200))
+		try apply(detail, out, "resize-nearest", (img) => transform.resize(img, larger, ResizeMode.NearestNeighbor))
+		try apply(detail, out, "resize-bilinear", (img) => transform.resize(img, larger, ResizeMode.Bilinear))
+		try apply(detail, out, "resize-bicubic", (img) => transform.resize(img, larger, ResizeMode.Bicubic))
+
+		// Area averages the pixels each new pixel covers: the mode for
+		// shrinking.
+		let smaller = new Size<uint>(uint(width / 3), uint(height / 3))
+		try apply(photo, out, "resize-area", (img) => transform.resize(img, smaller, ResizeMode.Area))
+
+		// Narrowing a picture squashes it, unless it is done by seam carving
+		// (ContentAware), which removes the paths of pixels that matter
+		// least and keeps the subject's shape.
+		let narrower = new Size<uint>(uint(width * 6 / 10), uint(height))
+		try apply(photo, out, "resize-squashed", (img) => transform.resize(img, narrower, ResizeMode.Bicubic))
+		try apply(photo, out, "resize-content-aware", (img) => transform.resize(img, narrower, ResizeMode.ContentAware))
+
+		// Fitting a picture into a box, here a 200x200 square, in each of
+		// the ten ways.
+		try apply(photo, out, "fit-cover", (img) => transform.fit(img, 200, 200, FitMode.Cover))
+		try apply(photo, out, "fit-contain", (img) => transform.fit(img, 200, 200, FitMode.Contain))
+		try apply(photo, out, "fit-scale-to-fit", (img) => transform.fit(img, 200, 200, FitMode.ScaleToFit))
+		try apply(photo, out, "fit-scale-to-fill", (img) => transform.fit(img, 200, 200, FitMode.ScaleToFill))
+		try apply(photo, out, "fit-width", (img) => transform.fit(img, 200, 200, FitMode.FitWidth))
+		try apply(photo, out, "fit-height", (img) => transform.fit(img, 200, 200, FitMode.FitHeight))
+		try apply(photo, out, "fit-center-crop", (img) => transform.fit(img, 200, 200, FitMode.CenterCrop))
+		try apply(photo, out, "fit-smart-crop", (img) => transform.fit(img, 200, 200, FitMode.SmartCrop))
+		try apply(photo, out, "fit-stretch", (img) => transform.fit(img, 200, 200, FitMode.Stretch))
+
+		// Tile repeats the picture to fill the box, so it gets a picture
+		// smaller than the box.
+		let small = photo.copy()
+		transform.resize(small, smaller, ResizeMode.Area)
+		try apply(small, out, "fit-tile", (img) => transform.fit(img, 200, 200, FitMode.Tile))
+		return 0
+	}
+
+	// Runs one transform on a copy of the picture, saves the result under
+	// `name` and prints where it went and its size. A result with transparent
+	// pixels is saved as PNG, since JPEG cannot store them.
+	def apply(photo image.Image, folder string, name string, change def(image.Image)) !none {
+		let result = photo.copy()
+		change(result)
+		let path = os.join(folder, name + (isOpaque(result) ?? (".jpg", ".png")))
+		try result.save(path)
+		println("{"%-45s".format(path)} {result.size().width}x{result.size().height}")
+		return none
+	}
+}

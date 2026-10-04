@@ -1,0 +1,89 @@
+// What the scenes share: the palette, the fonts, and a few shapes.
+internal module showcase.kit {
+	use (
+		std.formats.fonts
+		std.gfx.canvas::(Painter, TextAlign, TextStyle)
+		std.gfx.color::(Color, RGBA)
+		std.math::(Pi, cos, sin)
+		std.math.geom::(Path, Point, Rect)
+		std.units::(Pixels)
+	)
+
+	// The palette. A colour reads from any CSS colour text.
+	const ink = new Color("#222634")
+	const paper = new Color("#F6F4EE")
+	const white = new Color("#FFFFFF")
+	const blue = new Color("#3465C8")
+	const red = new Color("#C8463C")
+	const green = new Color("#3CA078")
+	const amber = new Color("#E6AA28")
+	const orange = new Color("#E6961E")
+	// Guide lines: grey under a shape, red where a line marks an anchor.
+	const grey = new Color("#C8C8CD")
+	const marker = new Color("#F05A50")
+	const captionGrey = new Color("#5A5E6E")
+	const night = new Color("#181A24")
+
+	// The fonts the scenes write with.
+	struct Faces {
+		text fonts.Face
+		// A font with CJK glyphs, when the computer has one.
+		cjk  ?fonts.Face
+	}
+
+	// One image of the showcase: its file name (without extension), its size
+	// in pixels, and what it draws.
+	struct Scene {
+		name   string
+		width  int
+		height int
+		draw   def(Painter, Faces)
+	}
+
+	// A colour from its channels, 0 to 255, for colours that are computed.
+	def rgb(r int, g int, b int, a int = 255) Color {
+		return new Color(RGBA{r: byte(r), g: byte(g), b: byte(b), a: byte(a)})
+	}
+
+	// A rectangle from its edges.
+	def box(left float, top float, right float, bottom float) Rect {
+		return Rect{left: left, top: top, right: right, bottom: bottom}
+	}
+
+	// A rectangle with rounded corners, as a path.
+	def rounded(r Rect, radius Pixels) Path {
+		return new Path().roundRect(r, radius)
+	}
+
+	// The point `r` away from `center` at `angle` (radians, clockwise from
+	// the right, as y grows down).
+	def polar(center Point, r float, angle float) Point {
+		return new Point(center.x + r * cos(angle), center.y + r * sin(angle))
+	}
+
+	// A five-pointed star drawn in one stroke, so its middle is wound twice:
+	// even-odd leaves it empty, non-zero fills it.
+	def star(center Point, r float) Path {
+		let points Point[]
+		for let i = 0; i < 5; i++ {
+			points.push(polar(center, r, -Pi / 2.0 + float(i) * 4.0 * Pi / 5.0))
+		}
+		return new Path().polygon(points)
+	}
+
+	// A five-pointed star's outline, points and notches alternating, which
+	// never crosses itself.
+	def starOutline(center Point, outer float, inner float) Path {
+		let points Point[]
+		for let i = 0; i < 10; i++ {
+			points.push(polar(center, i % 2 == 0 ?? (outer, inner), -Pi / 2.0 + float(i) * Pi / 5.0))
+		}
+		return new Path().polygon(points)
+	}
+
+	// A small caption centred on `x`, its baseline at `y`.
+	def caption(p Painter, text string, x float, y float, f Faces) {
+		let small = TextStyle{face: f.text, size: 13(px), align: TextAlign.Center}
+		p.fillText(text, new Point(x, y), small, captionGrey)
+	}
+}

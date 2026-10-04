@@ -1,0 +1,49 @@
+// Makes a thumbnail: scales an image down to fit a square of N pixels,
+// keeping its proportions.
+//
+//   adm run gfx/thumbnail/main.adm -- photo.jpg thumb.png        fits 128x128
+//   adm run gfx/thumbnail/main.adm -- photo.jpg thumb.png 64     fits 64x64
+//
+// The output's format comes from its extension. An image already smaller
+// than the square keeps its size.
+application Thumbnail {
+	use (
+		std.formats.image
+		std.gfx.processing.transform::(ResizeMode, resize)
+		std.math.geom::(Size)
+	)
+
+	// The program's entry point: `args[1]` is the image, `args[2]` the
+	// thumbnail to write and `args[3]` the square's side in pixels,
+	// optional. Fails when the input cannot be read or is not an image, or
+	// the output cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: thumbnail INPUT OUTPUT [SIZE]")
+			return 1
+		}
+		let side = args.len() > 3 ?? (args[3].toInt<int>(), 128)
+		if side <= 0 {
+			println("the size must be a positive number of pixels")
+			return 1
+		}
+
+		let img = try image.load(args[1])
+		let width = int(img.size().width)
+		let height = int(img.size().height)
+
+		if width > side || height > side {
+			// The longer edge becomes `side`; the other shrinks by the same
+			// ratio, to at least one pixel.
+			let longer = width.max(height)
+			let size = new Size<uint>(uint((width * side / longer).max(1)), uint((height * side / longer).max(1)))
+			// Area averages all the pixels a new pixel covers, which keeps
+			// fine detail from turning into noise when shrinking a lot.
+			resize(img, size, ResizeMode.Area)
+		}
+
+		try img.save(args[2])
+		println("{args[1]} {width}x{height} -> {args[2]} {img.size().width}x{img.size().height}")
+		return 0
+	}
+}

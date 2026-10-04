@@ -1,0 +1,103 @@
+// Applies every filter of std.gfx.processing.filters to one picture and
+// saves each result, so they can be compared side by side.
+//
+//   adm run --release gfx/filters/main.adm -- photo.jpg out
+//
+// The arguments are the picture and a folder for the results, one file per
+// filter, named after it. The picture is first scaled down to 300 pixels
+// wide so the results stay small.
+application Filters {
+	use (
+		std.formats.image
+		std.gfx::(CircleMask)
+		std.gfx.color::(Color, RGBA)
+		std.gfx.processing.filters
+		std.gfx.processing.transform::(ResizeMode, resize)
+		std.math.geom::(Circle, Size)
+		std.os
+	)
+
+	// The program's entry point. Fails when the picture cannot be read or is
+	// not an image, or a result cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: filters INPUT OUTPUT_FOLDER")
+			return 1
+		}
+		let photo = try image.load(args[1])
+		let out = args[2]
+		try os.mkdir(out) unless try os.exists(out)
+
+		// Every filter works on its own copy of this small version.
+		let width = uint(300)
+		let height = photo.size().height * width / photo.size().width
+		resize(photo, new Size<uint>(width, height), ResizeMode.Area)
+		try photo.save(os.join(out, "original.jpg"))
+
+		// A filter changes the picture it is given. Most take a strength:
+		// 0.0 leaves the picture alone, 1.0 is the full effect, and the ones
+		// that go both ways take -1.0 to 1.0. `apply`, below, runs one on a
+		// copy of the picture and saves it.
+
+		// Colour.
+		try apply(photo, out, "grayscale.jpg", (img) => filters.grayscale(img))
+		try apply(photo, out, "sepia.jpg", (img) => filters.sepia(img))
+		try apply(photo, out, "invert.jpg", (img) => filters.invert(img))
+		try apply(photo, out, "saturation.jpg", (img) => filters.saturation(img, 0.8))
+		try apply(photo, out, "hue.jpg", (img) => filters.hue(img, 0.5))
+		try apply(photo, out, "temperature.jpg", (img) => filters.temperature(img, 0.6))
+		let orange = new Color(RGBA{r: 255, g: 140, b: 0, a: 255})
+		try apply(photo, out, "tint.jpg", (img) => filters.tint(img, orange, 0.5))
+
+		// Light.
+		try apply(photo, out, "brightness.jpg", (img) => filters.brightness(img, 0.3))
+		try apply(photo, out, "contrast.jpg", (img) => filters.contrast(img, 0.5))
+		try apply(photo, out, "exposure.jpg", (img) => filters.exposure(img, 0.5))
+		try apply(photo, out, "gamma.jpg", (img) => filters.gamma(img, 2.0))
+
+		// Detail.
+		try apply(photo, out, "blur.jpg", (img) => filters.blur(img, 0.4))
+		try apply(photo, out, "sharpen.jpg", (img) => filters.sharpen(img, 1.0))
+
+		// Fewer colours.
+		try apply(photo, out, "posterize.jpg", (img) => filters.posterize(img, 4))
+		try apply(photo, out, "quantize.jpg", (img) => filters.quantize(img, 27))
+		try apply(photo, out, "threshold.jpg", (img) => filters.threshold(img, 0.5))
+
+		// Opacity makes pixels see-through, which JPEG cannot store.
+		try apply(photo, out, "opacity.png", (img) => filters.opacity(img, 0.5))
+
+		// Every pixel within 70 of this blue, on each channel, turns pink.
+		let sky = new Color(RGBA{r: 20, g: 100, b: 180, a: 255})
+		let pink = new Color(RGBA{r: 255, g: 105, b: 180, a: 255})
+		try apply(photo, out, "replace-color.jpg", (img) => filters.replaceColor(img, sky, pink, 70))
+
+		// mapPixel runs a function of your own on every pixel; this one swaps
+		// the red and blue channels.
+		try apply(photo, out, "map-pixel.jpg", (img) => filters.mapPixel(img, swapRedAndBlue))
+
+		// A mask limits any filter to part of the picture. This one is a
+		// circle over the right side with a soft edge, inverted so the filter
+		// covers everything but the circle.
+		let spot = new CircleMask(new Circle(float(width) * 0.72, float(height) * 0.45, float(height) * 0.42), 12.0)
+		spot.inverted = true
+		try apply(photo, out, "mask.jpg", (img) => filters.grayscale(img, 1.0, spot))
+		return 0
+	}
+
+	// Runs one filter on a copy of the picture, saves the result under
+	// `name` and prints where it went.
+	def apply(photo image.Image, folder string, name string, filter def(image.Image)) !none {
+		let result = photo.copy()
+		filter(result)
+		try result.save(os.join(folder, name))
+		println(os.join(folder, name))
+		return none
+	}
+
+	// The same pixel with its red and blue channels exchanged.
+	def swapRedAndBlue(c Color) Color {
+		let px = c.rgba
+		return new Color(RGBA{r: px.b, g: px.g, b: px.r, a: px.a})
+	}
+}

@@ -1,0 +1,54 @@
+// Writes one record in five data formats (JSON, YAML, TOML, MessagePack and
+// CBOR), reads it back from JSON, then writes a few bytes as text in three
+// ways (hex, Base64 and Base32).
+//
+//   adm run encoding/formats/main.adm
+module shelf {
+	// The record every format below encodes. Any struct works; its field
+	// names become the keys.
+	struct Book {
+		title  string
+		author string
+		year   int
+		tags   string[]
+	}
+}
+
+application Formats {
+	use (
+		shelf::(Book)
+		std.data.encoding::(Base32, Base64, CBOR, JSON, MsgPack, TOML, YAML, hexencode)
+	)
+
+	// The program's entry point. Fails when the JSON it wrote does not read
+	// back.
+	def new(args string[]) !int {
+		let book = Book{title: "Dune", author: "Frank Herbert", year: 1965, tags: ["fiction", "desert"]}
+
+		// Text formats. Every codec has `encode` and `decode`; an encoder
+		// returns bytes, which `string` turns into text.
+		let json = new JSON()
+		json.indent = true
+		println("JSON\n{string(json.encode(book))}\n")
+		println("YAML\n{string(new YAML().encode(book))}")
+		println("TOML\n{string(new TOML().encode(book))}")
+
+		// Binary formats, shown as hex: the same record in fewer bytes.
+		let packed = new MsgPack().encode(book)
+		println("MessagePack, {packed.len()} bytes\n{hexencode(packed)}\n")
+		let cbor = new CBOR().encode(book)
+		println("CBOR, {cbor.len()} bytes\n{hexencode(cbor)}\n")
+
+		// Decoding fills a value of the same type.
+		let copy = Book{}
+		try json.decode(json.encode(book), copy)
+		println("Read back from JSON: {copy.title} by {copy.author}, {copy.year}\n")
+
+		// Bytes as text.
+		let bytes = "ADM says hi".bytes()
+		println("hex     {hexencode(bytes)}")
+		println("Base64  {new Base64().encode(bytes)}")
+		println("Base32  {new Base32().encode(bytes)}")
+		return 0
+	}
+}

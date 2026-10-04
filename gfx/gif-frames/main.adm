@@ -1,0 +1,44 @@
+// Splits an animated GIF into one PNG per frame, and prints how long each
+// frame shows and how often the animation plays.
+//
+//   adm run gfx/gif-frames/main.adm -- input.gif             writes frames/frame-000.png and on
+//   adm run gfx/gif-frames/main.adm -- input.gif some/dir    writes into some/dir
+//
+// Each frame is written as it shows on screen, on top of the frames before it.
+application GifFrames {
+	use (
+		std.formats.image::(GIF)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is the GIF and `args[2]` the
+	// output directory, optional. Fails when the file cannot be read or is
+	// not a GIF, or a frame cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: gif-frames INPUT.gif [OUTPUT-DIR]")
+			return 1
+		}
+		let path = args[1]
+		let dir = args.len() > 2 ?? (args[2], "frames")
+
+		// `image.load` would give the first frame only. The GIF codec keeps
+		// everything the file holds: `decode` returns the first frame and
+		// fills `frames`, `loopCount` and `comment`.
+		let gif = new GIF()
+		let first = try gif.decode(try os.readFile(path))
+
+		let plays = gif.loopCount == 0 ?? ("forever", "{gif.loopCount} time(s)")
+		println("{path}: {first.size().width}x{first.size().height}, {gif.frames.len()} frame(s), plays {plays}")
+		println("comment: {gif.comment}") when gif.comment != ""
+
+		// `mkdir` fails when the directory is already there, which is fine.
+		os.mkdir(dir) onerror recover none
+		for let (i, frame) in gif.frames {
+			let name = os.join(dir, "frame-{i.str().padStart(3, "0")}.png")
+			try frame.image.save(name)
+			println("  {name}  {frame.length.milliseconds()} ms")
+		}
+		return 0
+	}
+}

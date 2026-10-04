@@ -1,0 +1,39 @@
+// Records three seconds from a microphone and plays them back through the
+// default speaker.
+//
+//   adm run devices/microphone/main.adm              the default microphone
+//   adm run devices/microphone/main.adm -- ID        the microphone with this id
+//
+// It prints the microphones first, the default one marked with a star, so
+// you can pick an id.
+application Record {
+	use std.devices
+
+	// The program's entry point. Fails when there is no such microphone or
+	// no speaker, or one of them stops working.
+	def new(args string[]) !int {
+		for let (_, microphone) in try devices.microphones() {
+			let mark = microphone.isDefault ?? ("*", " ")
+			println(" {mark} {microphone.id}  {microphone.name}")
+		}
+
+		// An empty id opens the default microphone.
+		let microphone = try devices.openMicrophone(args.len() > 1 ?? (args[1], ""))
+		println("recording 3 seconds from {microphone.device.name}")
+		let clip = try microphone.record(3s)
+		try microphone.close()
+
+		// Samples run from -1 to 1; the peak tells whether anything was heard.
+		let loudest float32 = 0.0
+		for let (_, sample) in clip.samples {
+			loudest = loudest.max(sample.abs())
+		}
+		println("{clip.info.frames} frames, peak {loudest}")
+
+		let speaker = try devices.openSpeaker()
+		defer speaker.close()
+		println("playing back on {speaker.device.name}")
+		try speaker.play(clip)
+		return 0
+	}
+}

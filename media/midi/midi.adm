@@ -1,0 +1,82 @@
+// Plays a MIDI file through the built-in synthesizer. A MIDI file holds
+// notes, not sound: the synthesizer turns the notes into sound.
+//
+//   adm run --release media/midi/midi.adm                 plays a scale built in code
+//   adm run --release media/midi/midi.adm -- song.mid     plays a file
+application midiPlayer {
+	use (
+		std.devices
+		std.formats.audio::(Midi, MidiTrack)
+		std.media.synth::(Synth)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is a MIDI file, optional. Fails
+	// when the file cannot be read or is not a MIDI file, or the speaker
+	// cannot be opened or written to.
+	def new(args string[]) !int {
+		let midi = scale()
+		midi = try load(args[1]) when args.len() > 1
+
+		let notes = 0
+		for let (_, track) in midi.tracks {
+			notes += track.events.len()
+		}
+		println("{midi.tracks.len()} track(s), {notes} events")
+
+		// Without a SoundFont the synthesizer plays simple built-in
+		// waveforms. `stream` gives the file's sound as it plays: stereo, at
+		// the synthesizer's 48000 frames a second.
+		let synth = new Synth()
+		let stream = synth.stream(midi)
+
+		let speaker = try devices.openSpeaker(sampleRate = synth.sampleRate, channels = 2)
+		defer speaker.close()
+
+		// Sound moves from the stream to the speaker a tenth of a second at
+		// a time. A frame is one sample for each of the two channels.
+		let buffer float32[]
+		buffer.len(synth.sampleRate / 10 * 2)
+		for {
+			let frames = try stream.read(buffer)
+			break when frames == 0
+			try speaker.write(buffer[:frames * 2])
+		}
+		// Wait until what was written has been heard.
+		try speaker.drain()
+		return 0
+	}
+
+	// Reads a MIDI file. Fails when the file cannot be opened or is not a
+	// Standard MIDI File.
+	def load(path string) !Midi {
+		let file = try os.open(path)
+		defer file.close()
+
+		let midi = new Midi()
+		try midi.fromReader(file)
+		return midi
+	}
+
+	// A MIDI file made in code: the C major scale, one note after another.
+	def scale() Midi {
+		let track = new MidiTrack()
+		// 500000 microseconds for a quarter note: 120 beats a minute.
+		track.tempo(500000)
+
+		// Keys are numbered in semitones; 60 is middle C. Every event has a
+		// `delta`: how many ticks after the event before it. A note starts
+		// right after the one before stops, and stops 240 ticks later.
+		for let (_, key) in [60, 62, 64, 65, 67, 69, 71, 72] {
+			track.noteOn(0, key, 100)
+			track.noteOff(0, key, delta = 240)
+		}
+		track.endOfTrack()
+
+		let midi = new Midi()
+		// 480 ticks make a quarter note, so each note above is an eighth.
+		midi.division = uint16(480)
+		midi.tracks.push(track)
+		return midi
+	}
+}

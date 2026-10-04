@@ -1,0 +1,146 @@
+// Plays audio and video files and internet radio in a window, one after
+// another. A video shows its picture; an audio file or a radio station
+// shows level bars moving with the sound.
+//
+//   adm run --release media/media-player/player.adm -- song.mp3 clip.mp4
+//   adm run --release media/media-player/player.adm -- ~/Music
+//   adm run --release media/media-player/player.adm -- https://live.kissfm.ro/kissfm.aacp
+//
+// A folder adds every audio and video file in it; an address starting with
+// http:// or https:// is a radio station, or a file on a server. Keys:
+//
+//   space          pause and resume
+//   n, p           next and previous file
+//   right, left    skip 10 seconds forward and back
+application mediaPlayer {
+	use (
+		std.formats.image::(Image)
+		std.gfx.color::(Color)
+		std.media.player::(LevelBarsVisualizer, MediaPlayer, PlayerState)
+		std.os
+		std.ui.renderer::(PlatformEventKind, WindowConfig)
+		std.ui.renderer.opengl::(OpenGLRenderer)
+	)
+
+	// The codes the window reports for the keys this program reads.
+	const keySpace = 32
+	const keyN = 78
+	const keyP = 80
+	const keyRight = 262
+	const keyLeft = 263
+
+	// The program's entry point: every argument is a file, a folder or an
+	// internet address to play. Fails when a folder cannot be read, the
+	// window cannot be opened, or playback cannot start (no speaker).
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: player FILE-OR-FOLDER-OR-ADDRESS...")
+			return 1
+		}
+
+		let player = new MediaPlayer()
+		for let (_, path) in args[1:] {
+			// An internet address goes in as it is: the player connects to it
+			// when its turn comes.
+			if path.startsWith("http://") || path.startsWith("https://") {
+				player.playlist.push(path)
+				continue
+			}
+			let info = try os.stat(path)
+			if info.isDir {
+				_ = try player.playlist.addFolder(path)
+			} else {
+				player.playlist.push(path)
+			}
+		}
+		println("{player.playlist.len()} item(s) to play")
+
+		// The player draws into `screen` while an audio file plays: the
+		// visualizer when it has one, else the file's cover art.
+		let screen = new Image(800, 600)
+		player.display = screen
+		player.visualizer = new LevelBarsVisualizer()
+
+		// The player runs on its own task and reports through these functions.
+		player.onTrackChange = def (index int) {
+			println("playing {player.playlist.tracks[index].location}") when index >= 0
+		}
+		// A radio station sends its name when the connection opens and a line
+		// of text each time a new song starts; the player puts them in the
+		// track's title and artist.
+		player.onTitleChange = def (index int) {
+			return when index < 0
+			let track = player.playlist.tracks[index]
+			if track.artist == "" {
+				println("  {track.title}")
+			} else {
+				println("  {track.artist}: {track.title}")
+			}
+		}
+		player.onError = def (index int, err error) {
+			println("cannot play {player.playlist.tracks[index].location}: {err.message}")
+		}
+		try player.play()
+
+		let renderer = new OpenGLRenderer()
+		let window = try renderer.openWindow(new WindowConfig("ADM media player", 800, 600))
+		let (width, height) = (800, 600)
+
+		// One turn of this loop is one frame on screen.
+		for {
+			for let (_, event) in try renderer.pollEvents(window) {
+				if event.kind == PlatformEventKind.Close {
+					player.stop()
+					try renderer.closeWindow(window)
+					return 0
+				}
+				if event.kind == PlatformEventKind.Resize {
+					width = int(event.size.width)
+					height = int(event.size.height)
+				}
+				if event.kind == PlatformEventKind.KeyDown {
+					try pressed(player, event.key)
+				}
+			}
+
+			let frame = try renderer.nextFrame(window)
+			let ctx = frame.ctx
+			ctx.clear(new Color("#000000"))
+
+			// `picture` is the video frame due now, or none for an audio file.
+			let picture = player.picture()
+			if picture is none {
+				// The visualizer's image, centred in the window.
+				ctx.blit(screen, ((width - 800) / 2).max(0), ((height - 600) / 2).max(0))
+			} else {
+				// The video frame, scaled to fit the window.
+				ctx.drawVideo(picture, 0, 0, width, height)
+			}
+			try renderer.commit(window, frame)
+		}
+	}
+
+	// Does what a key asks of the player. Fails when the player cannot
+	// start, change file or skip.
+	def pressed(player MediaPlayer, key int) !none {
+		switch key {
+			case keySpace:
+				if player.state() == PlayerState.Playing {
+					player.pause()
+				} else {
+					try player.play()
+				}
+			case keyN:
+				try player.next()
+			case keyP:
+				try player.previous()
+			// A radio stream has no earlier or later to skip to: the player
+			// refuses, and the key does nothing.
+			case keyRight:
+				player.skip(10s) onerror recover none
+			case keyLeft:
+				player.skip(-10s) onerror recover none
+		}
+		return none
+	}
+}

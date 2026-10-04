@@ -1,0 +1,78 @@
+// Lists the layers of a Photoshop document, top first as the Layers panel
+// shows them, with each layer's size and position, blend mode and opacity.
+// Given an output directory, it also saves every visible layer as its own
+// image.
+//
+//   adm run gfx/psd-layers/main.adm -- poster.psd
+//   adm run gfx/psd-layers/main.adm -- poster.psd layers/
+//   adm run gfx/psd-layers/main.adm -- poster.psd layers/ .png
+//
+// The last argument is the format of the layer images, .jpg by default.
+application PsdLayers {
+	use (
+		std.formats.image::(PSD, PSDLayer)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is the document; `args[2]` an
+	// output directory and `args[3]` an image extension, both optional.
+	// Fails when the document cannot be read or is not a PSD, or a layer
+	// cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: psd-layers FILE.psd [OUTPUT-DIR [.jpg|.png]]")
+			return 1
+		}
+
+		// `image.load` would give the flattened picture. The PSD codec
+		// keeps the layers.
+		let psd = new PSD()
+		_ = try psd.decode(try os.readFile(args[1]))
+
+		// The file stores the layers bottom first, so list them backwards.
+		println("{psd.width}x{psd.height}, {psd.layers.len()} layers")
+		for let i = psd.layers.len() - 1; i >= 0; i-- {
+			println(describe(i, psd.layers[i]))
+		}
+		return 0 when args.len() < 3
+
+		let dir = args[2]
+		let extension = args.len() > 3 ?? (args[3], ".jpg")
+		// `mkdir` fails when the directory is already there, which is fine.
+		os.mkdir(dir) onerror recover none
+		for let (i, layer) in psd.layers {
+			// Groups and empty layers have no pixels of their own.
+			continue when layer.group || !layer.visible || layer.bounds.size.width == 0
+			let path = os.join(dir, fileName(i, layer, extension))
+			try layer.image.save(path)
+			println("wrote {path}")
+		}
+		return 0
+	}
+
+	// One line for a layer: its number, an `h` when hidden, and its name
+	// indented under its groups; then its size and position, blend mode and
+	// opacity. A group shows its name in brackets.
+	def describe(index int, layer PSDLayer) string {
+		let number = index.str().padStart(3)
+		let hidden = layer.visible ?? (" ", "h")
+		let indent = "  ".repeat(layer.depth)
+		return "{number} {hidden} {indent}[{layer.name}]" when layer.group
+
+		let bounds = layer.bounds
+		let place = "{bounds.size.width}x{bounds.size.height}+{bounds.position.x}+{bounds.position.y}"
+		// A layer's opacity runs from 0 to 255.
+		let opacity = layer.opacity * 100 / 255
+		return "{number} {hidden} {indent}{layer.name.padEnd(24)} {place.padEnd(18)} {layer.blendMode.str().padEnd(12)} {opacity}%"
+	}
+
+	// A file name for a layer: its number, then its name with everything but
+	// letters and digits turned into dashes.
+	def fileName(index int, layer PSDLayer, extension string) string {
+		let safe = ""
+		for let c in layer.name {
+			safe += c.isAlphanumeric() ?? (string(c), "-")
+		}
+		return "{index.str().padStart(3, "0")}-{safe}{extension}"
+	}
+}

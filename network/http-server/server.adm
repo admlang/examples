@@ -1,0 +1,59 @@
+// A small web server with four routes: a page, a greeting that takes a
+// name from the address, a JSON reply and one that echoes what is sent.
+//
+//   adm run network/http-server/server.adm            listens on port 8080
+//   adm run network/http-server/server.adm -- 9000    listens on another port
+//
+// Try it from another terminal, or open http://localhost:8080 in a browser:
+//
+//   curl http://localhost:8080/
+//   curl http://localhost:8080/hello/Ada
+//   curl http://localhost:8080/about
+//   curl -d "some text" http://localhost:8080/echo
+//
+// Press Ctrl+C to stop.
+application httpServer {
+	use std.net.http
+
+	// The program's entry point: `args[1]` is the port, optional. Fails
+	// when the port cannot be listened on, for example when another program
+	// already uses it.
+	def new(args string[]) !int {
+		let port = args.len() > 1 ?? (args[1], "8080")
+
+		// The router picks the function to run from a request's method and
+		// path. Each function gets a context: the request to read from and
+		// the reply to write to.
+		let routes = new http.ServeMux()
+
+		// A pattern that ends in `/` matches every path under it, so this
+		// page also answers the paths no other route takes.
+		try routes.get("/", def (ctx http.Context) !none {
+			return ctx.html("<h1>Hello from ADM</h1><p>Try <a href=\"/hello/Ada\">/hello/Ada</a> or <a href=\"/about\">/about</a>.</p>")
+		})
+
+		// `{name}` in a pattern matches one part of the path, and `param`
+		// reads what it matched. A string puts the value of `{expression}`
+		// in the text, so literal braces are written `\{` and `\}`.
+		try routes.get("/hello/\{name\}", def (ctx http.Context) !none {
+			return ctx.text("Hello, {ctx.param("name")}!")
+		})
+
+		// `json` writes any value as JSON; a map becomes an object.
+		try routes.get("/about", def (ctx http.Context) !none {
+			return ctx.json({"language": "ADM", "path": ctx.path(), "client": ctx.clientAddr()})
+		})
+
+		// A POST carries a body: `ctx.text()` reads it, `ctx.text(...)` replies.
+		try routes.post("/echo", def (ctx http.Context) !none {
+			let sent = try ctx.text()
+			return ctx.text("you sent {sent.len()} characters: {sent}\n")
+		})
+
+		let server = new http.Server(":{port}", routes)
+		println("listening on http://localhost:{port}")
+		// Serves requests until the program is stopped.
+		try server.listenAndServe()
+		return 0
+	}
+}

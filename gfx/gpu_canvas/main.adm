@@ -1,0 +1,138 @@
+// An animated scene drawn on the GPU in a window: a gradient background,
+// drifting circles, a card with a shadow, a spinner, sliding noise, and a
+// panel painted by a shader written in ADM.
+//
+//   adm run --release gfx/gpu_canvas/main.adm
+//
+// The drawing calls are the std.gfx.canvas ones; the OpenGL renderer turns
+// each frame into GPU draw calls and shaders.
+module demo.gpu_canvas {
+	use (
+		std.gfx.canvas::(ColorStop, ConicGradient, DrawContext, DropShadow, ShaderPaint, linear, noise)
+		std.gfx.color::(BlendMode, Color, RGBA)
+		std.math::(cos, sin)
+		std.math.geom::(Circle, Path, Point, Rect, Vec2, Vec4)
+		std.time
+		std.ui
+		std.units::(Percent, Pixels)
+	)
+
+	// A shader: `@fragment` compiles this function to GLSL, and the GPU
+	// runs it once for every pixel it paints. `p` is the pixel's position;
+	// the other parameters are set where the paint is made. The result is
+	// the pixel's colour as red, green, blue and alpha, each 0 to 1.
+	//
+	// It draws rings spreading from `center`, fading with the distance.
+	@fragment
+	def ripple(p Vec2, time float, center Vec2) Vec4 {
+		let distance = (p - center).length()
+		let wave = sin(distance * 0.08 - time * 3.0) * 0.5 + 0.5
+		let glow = (1.0 - distance / 220.0).clamp(0.0, 1.0)
+		return new Vec4(0.2 + 0.6 * wave, 0.3 + 0.4 * glow, 0.9, glow * (0.4 + 0.6 * wave))
+	}
+
+	// A colour from its channels, 0 to 255.
+	def rgb(r int, g int, b int, a int = 255) Color {
+		return new Color(RGBA{r: byte(r), g: byte(g), b: byte(b), a: byte(a)})
+	}
+
+	// The window's content. A component has a `view` (its child
+	// components), a `style` and a `type` (its state and code); this one
+	// has no children and draws everything itself in `render`.
+	component Root {
+		view {
+
+		}
+		style {
+
+		}
+		type {
+			// When the animation started.
+			start time.Time
+
+			def new() {
+				start = time.now()
+			}
+
+			// Draws one frame. The renderer calls it for every frame.
+			def render(ctx DrawContext) {
+				let size = ctx.size()
+				let (w, h) = (size.width, size.height)
+				// Seconds since the start: everything that moves depends on it.
+				let t = float(ctx.frameTime - start) / float(1s)
+
+				// The background: a gradient from corner to corner.
+				let background = linear(new Point(0.0, 0.0), new Point(w, h), [rgb(255, 220, 180), rgb(120, 160, 255)])
+				ctx.fill(Rect{left: 0.0, top: 0.0, right: w, bottom: h}, background)
+
+				// Forty translucent circles drifting to the right; `%` wraps
+				// them around the window's edges.
+				for let i = 0; i < 40; i++ {
+					let x = (float(i) * 97.0 + t * 60.0) % w
+					let y = (float(i) * 53.0 + sin(t + float(i)) * 20.0) % h
+					let radius = 30.0 + float(i % 5) * 6.0
+					ctx.fill(new Circle(new Point(x, y), radius), rgb(i * 6 % 256, 120, 255 - i * 5, 150))
+				}
+
+				// A card with a soft shadow: an effect applies to everything
+				// drawn between `beginGroup` and `endGroup`.
+				let card = Rect{left: 80.0, top: 80.0, right: 420.0, bottom: 300.0}
+				ctx.beginGroup(effects = [DropShadow{offset:new Vec2(6.0, 8.0), blur:12(px)}])
+				ctx.fill(new Path().roundRect(card, 24(px)), rgb(255, 255, 255, 230))
+				ctx.endGroup()
+
+				// A spinner on the card: a conic gradient from blue to
+				// transparent whose start angle turns with time, with a white
+				// disc over its middle.
+				let centre = new Point(250.0, 190.0)
+				let sweep = [
+					ColorStop{offset: 0(%), color: rgb(40, 80, 255)},
+					ColorStop{offset: 100(%), color: rgb(40, 80, 255, 0)},
+				]
+				ctx.fill(new Path().circle(centre, 60.0), new ConicGradient(centre, t * 3.0, sweep))
+				ctx.fill(new Circle(centre, 44.0), rgb(255, 255, 255))
+
+				// A dot orbiting the spinner.
+				let dot = new Point(centre.x + cos(t * 2.0) * 90.0, centre.y + sin(t * 2.0) * 90.0)
+				ctx.fill(new Circle(dot, 10.0), rgb(255, 60, 90))
+
+				// Noise multiplied over the top right quarter. The canvas
+				// slides left while the rectangle moves right by as much, so
+				// the rectangle stays put and the noise slides through it.
+				let slide = t * 30.0
+				ctx.save()
+				ctx.translate(-slide, 0.0)
+				ctx.setBlend(BlendMode.Multiply)
+				let quarter = Rect{left: w / 2.0 + slide, top: 0.0, right: w + slide, bottom: h / 2.0}
+				ctx.fill(quarter, noise(40.0, [rgb(255, 255, 255), rgb(200, 120, 60)]))
+				ctx.restore()
+
+				// The shader as a paint: `ripple` colours every pixel of the
+				// panel, with its `time` and `center` parameters set here.
+				let panel = Rect{left: 480.0, top: 340.0, right: 900.0, bottom: 640.0}
+				ctx.fill(new Path().roundRect(panel, 28(px)), new ShaderPaint(ripple, time = t, center = new Vec2(690, 490)))
+			}
+		}
+	}
+}
+
+application GpuCanvasApp {
+	use (
+		std.ui::(UI, UIConfig)
+		std.ui.renderer
+		demo.gpu_canvas::(Root)
+	)
+
+	// The program's entry point: picks the OpenGL renderer, opens a window
+	// and runs the component in it until the window is closed. Fails when
+	// the renderer or the window cannot be started.
+	async def new(args string[]) !int {
+		try UI.config(UIConfig{rendererName: "opengl", showFPS: true})
+		try await UI.start()
+		let window = new renderer.WindowConfig("ADM GPU canvas", 1280, 720)
+		// Without vsync the frame rate is not held to the screen's refresh rate.
+		window.vsync = false
+		try await UI.run(Root(), window)
+		return 0
+	}
+}

@@ -1,0 +1,141 @@
+// Makes one barcode of every kind std.barcodes knows, saves each as an
+// image, then loads the image back and checks the barcode found in it holds
+// the text it was made from. Last, it puts four barcodes on one sheet and
+// reads them all in one pass.
+//
+//   adm run encoding/barcodes/main.adm                writes into barcodes-out/
+//   adm run encoding/barcodes/main.adm -- some/dir    writes into some/dir
+application roundtrip {
+	use (
+		std.barcodes::*
+		std.barcodes.qr
+		std.formats.image::(Image, load)
+		std.os
+		roundtrip.samples::(Sample)
+	)
+
+	// The program's entry point: `args[1]` is the output directory,
+	// optional. Fails when a text does not fit its kind of barcode, or an
+	// image cannot be written or read. Returns 1 when a barcode does not
+	// read back.
+	def new(args string[]) !int {
+		let dir = args.len() > 1 ?? (args[1], "barcodes-out")
+		// `mkdir` fails when the directory is already there, which is fine.
+		os.mkdir(dir) onerror recover none
+
+		// Each kind takes its own characters: the retail codes (EAN, UPC,
+		// ITF) hold digits only, with a check digit at the end.
+		let samples = [
+			Sample{name: "qr", symbology: Symbology.Qr, text: "https://adm-lang.dev/?from=barcodes"},
+			Sample{name: "micro-qr", symbology: Symbology.MicroQr, text: "ADM 2026"},
+			Sample{name: "datamatrix", symbology: Symbology.DataMatrix, text: "Data Matrix: 0123456789"},
+			Sample{name: "aztec", symbology: Symbology.Aztec, text: "Aztec Code, hello!"},
+			Sample{name: "pdf417", symbology: Symbology.Pdf417, text: "PDF417 carries whole paragraphs of text."},
+			Sample{name: "micro-pdf417", symbology: Symbology.MicroPdf417, text: "MicroPDF417"},
+			Sample{name: "ean13", symbology: Symbology.Ean13, text: "5901234123457"},
+			Sample{name: "ean8", symbology: Symbology.Ean8, text: "96385074"},
+			Sample{name: "upca", symbology: Symbology.UpcA, text: "036000291452"},
+			Sample{name: "upce", symbology: Symbology.UpcE, text: "01234565"},
+			Sample{name: "code128", symbology: Symbology.Code128, text: "Code 128 / ADM"},
+			Sample{name: "code39", symbology: Symbology.Code39, text: "CODE 39"},
+			Sample{name: "code93", symbology: Symbology.Code93, text: "Code 93!"},
+			Sample{name: "itf", symbology: Symbology.Itf, text: "12345670"},
+			Sample{name: "codabar", symbology: Symbology.Codabar, text: "A40156B"},
+		]
+
+		println("writing and reading back {samples.len()} barcodes in {dir}/")
+		let failed = 0
+		for let (_, sample) in samples {
+			let path = os.join(dir, sample.name + ".png")
+			let img = try draw(sample)
+			try img.save(path)
+			failed++ unless try readsBack(path, sample)
+		}
+
+		// JPEG is lossy: its blurred edges test the reader. `qr.encode`
+		// takes the QR options, here a higher error correction level.
+		let fromJpeg = Sample{name: "qr", symbology: Symbology.Qr, text: "Read back from a JPEG"}
+		let jpegPath = os.join(dir, "qr.jpg")
+		let symbol = try qr.encode(fromJpeg.text, level = qr.Level.Q)
+		try symbol.toImage(scale = 6).save(jpegPath)
+		failed++ unless try readsBack(jpegPath, fromJpeg)
+
+		// Several kinds on one sheet: `decode` finds every barcode in an image.
+		println("one sheet, several barcodes:")
+		let parts = [
+			Sample{name: "", symbology: Symbology.Qr, text: "sheet: QR"},
+			Sample{name: "", symbology: Symbology.DataMatrix, text: "sheet: Data Matrix"},
+			Sample{name: "", symbology: Symbology.Aztec, text: "sheet: Aztec"},
+			Sample{name: "", symbology: Symbology.Code128, text: "SHEET 128"},
+		]
+		let sheetPath = os.join(dir, "sheet.png")
+		let all = try sheet(parts)
+		try all.save(sheetPath)
+		for let (_, part) in parts {
+			failed++ unless try readsBack(sheetPath, part)
+		}
+
+		println(failed == 0 ?? ("all read back", "{failed} did not read back"))
+		return failed == 0 ?? (0, 1)
+	}
+
+	// The sample's barcode as an image. Fails when the text does not fit
+	// the kind of barcode.
+	def draw(sample Sample) !Image {
+		// A symbol is the barcode as a grid of dark and light modules.
+		let symbol = try encode(sample.text, sample.symbology)
+		// `scale` is the size of one module in pixels.
+		return symbol.toImage(scale = symbol.linear() ?? (3, 5))
+	}
+
+	// Loads the image at `path`, looks for barcodes in it, and reports
+	// whether one of them is the sample's kind with the sample's text.
+	// Fails when the image cannot be read.
+	def readsBack(path string, sample Sample) !bool {
+		let img = try load(path)
+		for let (_, found) in decode(img) {
+			if found.symbology == sample.symbology && found.text == sample.text {
+				println("  {path}: {found.symbology} \"{found.text}\" ok")
+				return true
+			}
+		}
+		println("  {path}: {sample.symbology} \"{sample.text}\" NOT FOUND")
+		return false
+	}
+
+	// The samples' barcodes side by side on a white image, with a gap around
+	// each. Fails as `draw` does.
+	def sheet(parts Sample[]) !Image {
+		let gap = 40
+		let images Image[]
+		let width = gap
+		let height = 0
+		for let (_, part) in parts {
+			let img = try draw(part)
+			images.push(img)
+			width += int(img.size().width) + gap
+			height = height.max(int(img.size().height))
+		}
+
+		let out = new Image(width, height + 2 * gap)
+		// Every byte 255 is opaque white.
+		out.raw().fill(255)
+		let left = gap
+		for let (_, img) in images {
+			out.draw(img, left, gap)
+			left += int(img.size().width) + gap
+		}
+		return out
+	}
+}
+
+internal module roundtrip.samples {
+	use std.barcodes::(Symbology)
+
+	// One barcode to make: the file name, the kind and the text it holds.
+	struct Sample {
+		name      string
+		symbology Symbology
+		text      string
+	}
+}

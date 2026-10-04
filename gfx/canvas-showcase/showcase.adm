@@ -1,0 +1,95 @@
+// Draws one PNG per area of the std.gfx.canvas API: paths and strokes,
+// borders, path booleans, morphing and trimming, gradients and patterns,
+// noise, mesh gradients, drawing state and compositing, effects, layers,
+// text, vertical text, paragraphs, recorded pictures, sprites and mesh warps.
+//
+//   adm run gfx/canvas-showcase/showcase.adm                      writes canvas-showcase/*.png
+//   adm run gfx/canvas-showcase/showcase.adm -- out/ font.ttf     another directory or font
+//
+// Without a font file it uses an installed sans-serif font. The vertical
+// text scene writes Japanese when a Noto CJK font is installed.
+//
+// The scenes are in the files beside this one (shapes.adm, paint.adm,
+// compositing.adm, text.adm, images.adm); kit.adm holds what they share.
+application showcase {
+	use (
+		std.formats.fonts
+		std.formats.image::(Image)
+		std.gfx.canvas::(Canvas)
+		std.mem
+		std.os
+		showcase.kit::*
+		showcase.scenes::*
+	)
+
+	// The program's entry point: `args[1]` is the output directory and
+	// `args[2]` a font file, both optional. Fails when the font cannot be
+	// read, or the directory or an image cannot be written.
+	def new(args string[]) !int {
+		let dir = args.len() > 1 ?? (args[1], "canvas-showcase")
+		let faces = try loadFaces(args.len() > 2 ?? (args[2], ""))
+		try makeDirs(dir)
+
+		let scenes = [
+			Scene{name: "01-paths", width: 900, height: 570, draw: paths},
+			Scene{name: "02-borders", width: 900, height: 580, draw: borders},
+			Scene{name: "03-path-booleans", width: 900, height: 420, draw: booleans},
+			Scene{name: "04-morph-and-trim", width: 900, height: 400, draw: motion},
+			Scene{name: "05-paint", width: 900, height: 640, draw: paint},
+			Scene{name: "06-noise", width: 900, height: 170, draw: noises},
+			Scene{name: "07-mesh-gradients", width: 900, height: 430, draw: meshGradients},
+			Scene{name: "08-state", width: 900, height: 700, draw: compositing},
+			Scene{name: "09-effects", width: 900, height: 520, draw: effects},
+			Scene{name: "10-layers", width: 900, height: 450, draw: layers},
+			Scene{name: "11-text", width: 900, height: 640, draw: text},
+			Scene{name: "12-vertical-text", width: 900, height: 510, draw: verticalText},
+			Scene{name: "13-paragraphs", width: 900, height: 470, draw: paragraphs},
+			Scene{name: "14-pictures", width: 900, height: 740, draw: pictures},
+			Scene{name: "15-sprites", width: 900, height: 520, draw: sprites},
+			Scene{name: "16-mesh-warp", width: 900, height: 270, draw: warps},
+		]
+		for let (_, scene) in scenes {
+			let cv = new Canvas(scene.width, scene.height)
+			cv.clear(paper)
+			scene.draw(cv, faces)
+			try save(cv, "{dir}/{scene.name}.png")
+		}
+		return 0
+	}
+
+	// Writes the canvas as an image file; the extension picks the format.
+	// Fails when the file cannot be written.
+	def save(cv Canvas, path string) !none {
+		// A canvas and an image hold the same RGBA bytes.
+		let img = new Image(cv.width, cv.height)
+		mem.copy(img.raw(), cv.pixels)
+		try img.save(path)
+		println("wrote {path}")
+		return none
+	}
+
+	// The fonts for the scenes: the file at `path`, or an installed
+	// sans-serif font when `path` is empty, and an installed CJK font when
+	// there is one. Fails when the file is not a font, or no font is installed.
+	def loadFaces(path string) !Faces {
+		let installed = fonts.systemFonts()
+		let cjk = installed.find(["Noto Serif CJK JP", "Noto Sans CJK JP", "Hiragino Sans", "MS Gothic"])
+		if path != "" {
+			let font = try fonts.load(try os.readFile(path))
+			return Faces{text: try font.face(0), cjk: cjk}
+		}
+		let face = installed.find(["Source Sans Pro", "sans-serif"], weight = 700)
+		fail "no sans-serif font is installed; pass a font file as the second argument" when face is none
+		return Faces{text: face, cjk: cjk}
+	}
+
+	// Makes the directory and any parents it lacks. Fails when one of them
+	// cannot be made.
+	def makeDirs(path string) !none {
+		let there = os.exists(path) onerror recover false
+		return none when there || path == "" || path == "."
+		let parent = os.dir(path)
+		try makeDirs(parent) when parent != path
+		return os.mkdir(path)
+	}
+}

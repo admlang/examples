@@ -1,0 +1,197 @@
+// Chats with a GGUF language model in the terminal.
+//
+//   adm run --release ai/chat/llm.adm -- MODEL.gguf [options] ["system prompt"]
+//
+// Each line you type is a user message; the reply prints piece by piece as
+// the model generates it. An empty line or end of input quits. Options:
+//
+//   --no-think        answer without reasoning first (models with a thinking switch, such as Qwen3)
+//   --show-thinking   print the reasoning as well as the answer
+//   --tools           let the model call tools
+//
+// Any other argument replaces the system prompt.
+application chat {
+	use (
+		std.ai.llm
+		std.os
+		std.time
+	)
+
+	// The program's entry point: `args[0]` is the program's name, `args[1]`
+	// the model file, and the options follow. Fails when the model cannot be
+	// loaded or generation fails.
+	async def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: chat MODEL.gguf [--no-think] [--show-thinking] [--tools] [system prompt]")
+			return 0
+		}
+
+		// `load` reads the weights and the tokenizer, and runs the model on
+		// the GPU when there is one, on the CPU otherwise.
+		let model = try llm.load(args[1])
+		showModelInfo(model)
+
+		return chat(model, args[3:])
+	}
+
+	// Prints one line describing the loaded model.
+	def showModelInfo(model llm.LanguageModel) {
+		let info = model.info
+
+		println("{info.architecture} \"{info.name}\": {info.layers} layers, " +
+					"{info.embedding} wide, "+
+					"{info.heads}/{info.kvHeads} heads, " +
+					"{info.parameters} parameters, " +
+					"mostly {info.weightType}")
+	}
+
+	// Runs the conversation until the input ends. Fails when a message does
+	// not fit the context or the model fails while generating.
+	def chat(model llm.LanguageModel, options string[]) !int {
+		// A session is one conversation: it holds the context and the
+		// sampling settings, which can change between messages.
+		let session = model.session()
+
+		// A temperature of 0 always picks the most likely token; higher
+		// values vary the answers. `limit` caps the tokens of one reply.
+		session.temperature = 0.7
+		session.limit = 1024
+		session.system = "You are a helpful assistant."
+		// Only gpt-oss reads `reasoning`.
+		session.reasoning = llm.Reasoning.High
+
+		for let option in options {
+			match option {
+				case "--no-think": session.thinking = false
+				case "--show-thinking": session.showThinking = true
+				case "--tools":
+					// The model may call the session's tools from the next `ask` on.
+					session.tools.push(readFileTool())
+				default:
+					session.system = option
+			}
+		}
+
+		// Input read past the end of a line, kept for the next `readLine`.
+		let pending byte[]
+		for {
+			print("\n> ")
+			let line = readLine(os.stdin, pending)
+			break when line is none || line.trim() == ""
+
+			// `ask` adds the user message and `stream` generates the reply.
+			// Tool calls and their results join the conversation as messages,
+			// so those after `before` belong to this reply.
+			let before = session.messages().len()
+			try session.ask(line.trim())
+			try stream(session)
+			showToolCalls(session, before)
+
+			let s = session.stats()
+			println("\n[{session.length()} tokens in context, {s.generateSpeed} tokens/s]")
+		}
+
+		return 0
+	}
+
+	// A tool written as a method. `@llm.tool` takes the tool's description
+	// from this comment, each parameter's from its `@param` line, and the
+	// parameters from the signature; a default value makes one optional.
+	// `session.useTool(owner)` offers the `@llm.tool` methods of `owner`'s type.
+
+	// Reports the current date and time.
+	// @param offsetHours Hours east of UTC, e.g. 2 for Central European Summer Time.
+	@llm.tool(name = "current_time")
+	def currentTime(offsetHours float = 0.0) string {
+		let shift = int64(offsetHours * 3600.0) * int64(1000000000)
+		let t = time.fromUnixNs(time.now().unixNs() + shift)
+		let pad = (n int) => "{n}".padStart(2, "0")
+		let offset = offsetHours == float(int(offsetHours)) ?? ("{int(offsetHours)}", "{offsetHours}")
+		return "{t.year()}-{pad(t.month())}-{pad(t.day())} {pad(t.hour())}:{pad(t.minute())}:{pad(t.second())} (UTC{offsetHours >= 0.0 ?? ("+", "")}{offset})"
+	}
+
+	// A tool written as a value: its parameters are listed by hand and `run`
+	// reads the call's arguments. The model reads what `run` returns as the
+	// result, or the error message when it fails.
+	def readFileTool() llm.Tool {
+		return llm.Tool{
+			name:        "read_file",
+			description: "Reads a text file and returns its contents (at most 16 KB).",
+			parameters:  llm.ToolParameter[llm.ToolParameter{name:"path", kind:llm.ParameterKind.String, description:"Path of the file"}],
+			run:         def (call llm.ToolCall) !string {
+				use helpers::(FileArgs, home)
+				// `decode` fills the struct's fields from the call's JSON arguments.
+				let args = FileArgs{}
+				try call.decode(args)
+				// Models write home-relative paths the way a shell reads them.
+				let path = args.path.startsWith("~/") ?? (os.join(home, args.path.slice(2)), args.path)
+				let data = try os.readFile(path)
+				let text = string(data.len() > 16384 ?? (data[:16384], data))
+				return data.len() > 16384 ?? (text + "\n[truncated]", text)
+			},
+		}
+	}
+
+	// Prints the tool calls made since message `from`, and the first 200
+	// characters of each result.
+	def showToolCalls(session llm.Session, from int) {
+		let all = session.messages()
+		for let k = from; k < all.len(); k++ {
+			let m = all[k]
+			for let (_, c) in m.calls {
+				println("\n  [call {c.name}({c.arguments})]")
+			}
+			println("  [result: {m.text.len() > 200 ?? (m.text.slice(0, 200) + "...", m.text)}]") when m.role == llm.Role.Tool
+		}
+	}
+
+	// Prints the reply as it is generated. `next` returns `none` when the
+	// model ends its turn or reaches `limit`. Fails when generation fails.
+	def stream(session llm.Session) !none {
+		for {
+			let piece = try session.next()
+			break when piece is none
+			print(piece)
+		}
+		return none
+	}
+
+	// Reads one line from `input`, without its line break. `pending` carries
+	// the bytes read past the line from one call to the next. Returns `none`
+	// at the end of input; a read error counts as the end.
+	def readLine(input os.File, pending byte[]) ?string {
+		let chunk byte[]
+		chunk.len(4096)
+		for {
+			let at = pending.indexOf(byte(10))
+			if at >= 0 {
+				let line = string(pending[:at])
+				let rest = pending[at + 1:].clone()
+				pending.len(0)
+				pending.push(...rest)
+				return line
+			}
+			let n = input.read(chunk) onerror recover 0
+			if n <= 0 {
+				return none when pending.len() == 0
+				let line = string(pending)
+				pending.len(0)
+				return line
+			}
+			pending.push(...chunk[:n])
+		}
+	}
+}
+
+// What the read_file tool needs.
+module helpers {
+	// The user's home folder, for paths starting with `~/`; `@env` fills the
+	// constant from the environment variable.
+	@env("HOME")
+	const home string
+
+	// The arguments of a read_file call.
+	struct FileArgs {
+		path string
+	}
+}

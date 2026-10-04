@@ -1,0 +1,121 @@
+// Classifies a support ticket with a decision model (Bespoke Nimble, or any
+// chat model): typed questions answered just with probabilities and no text
+// generated.
+//
+//   adm run --release ai/classifier/classifier.adm -- MODEL.gguf ["ticket text"]
+//
+// Without the ticket text it reads one line from standard input. For each
+// question it prints the most likely answer and the probability of every
+// option.
+application classifier {
+	use (
+		std.os
+		std.time
+		std.ai.llm
+	)
+
+	// The program's entry point: `args[1]` is the model file and `args[2]`
+	// the optional ticket text. Fails when the model cannot be loaded, the
+	// ticket does not fit the model's context, or the model fails.
+	async def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: classifier MODEL.gguf [\"ticket text\"]")
+			return 0
+		}
+		let model = try llm.load(args[1])
+
+		let text = args.len() > 2 ?? (args[2], readLine())
+		if text.trim().len() == 0 {
+			println("no text to classify")
+			return 1
+		}
+
+		// Each question has a `name` (the answer carries it), the `text` the
+		// model reads, and a `kind` that says what `choices` mean.
+		let questions = llm.Question[
+			// The default kind, Choice: the answer is one of `choices`.
+			// `described` explains each option to the model, in the same
+			// order; an empty entry leaves an option without one.
+			llm.Question{
+				name:    "topic",
+				text:    "What is the ticket about?",
+				choices: string[
+					"billing",
+					"delivery",
+					"product",
+					"account",
+					"other",
+				],
+				described: string[
+					"payments, invoices, refunds",
+					"shipping, delays, damage in transit",
+					"how the product works or fails",
+					"login, password, profile", "",
+				],
+			},
+
+			llm.Question{
+				name:    "sentiment",
+				text:    "How does the customer feel?",
+				choices: string["positive", "neutral", "negative"],
+			},
+
+			// YesNo needs no choices; the answer's `probability` is that of yes.
+			llm.Question{
+				name: "refund",
+				text: "Does the customer ask for their money back?",
+				kind: llm.QuestionKind.YesNo,
+			},
+
+			// Score: `choices` describe the levels, here 0 to 2. The answer's
+			// `score` is the expected level, each level weighted by its
+			// probability, so it falls between levels when the model is unsure.
+			llm.Question{
+				name:    "urgency",
+				text:    "How urgent is the ticket?",
+				kind:    llm.QuestionKind.Score,
+				choices: string[
+					"can wait",
+					"within a day",
+					"right now",
+				],
+			},
+		]
+
+		let session = model.session()
+		let start = time.now()
+
+		// `decide` reads the probability of each option from the model's
+		// next-token scores instead of generating text. It returns one
+		// answer per question, in order, and leaves the session's
+		// conversation as it was.
+		let answers = try session.decide(text, questions)
+
+		for let (_, a) in answers {
+			// `confidence` is 1 when the model is certain and 0 when every
+			// option is equally likely.
+			let lvl = a.question == "urgency" ?? (", expected level {a.score} of 2", "")
+			println("{a.question}: {a.choice} (p {a.probability}, confidence {a.confidence} {lvl})")
+			for let (_, c) in a.choices {
+				println("    {c.text.padEnd(10)} {c.probability}")
+			}
+		}
+
+		let s = session.stats()
+		println("\n{answers.len()} answers in {time.since(start).str()}, {s.promptTokens} prompt tokens")
+		return 0
+	}
+
+	// Prompts for the ticket and reads it from standard input, in one read of
+	// at most 4096 bytes. Returns "" when the input cannot be read or is empty.
+	def readLine() string {
+		print("ticket> ")
+		let input = os.open("/dev/stdin") onerror (err error) {
+			return ""
+		}
+		let chunk byte[]
+		chunk.len(4096)
+		let n = input.read(chunk) onerror recover 0
+		return n <= 0 ?? ("", string(chunk[:n]).trim())
+	}
+}

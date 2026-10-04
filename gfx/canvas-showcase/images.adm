@@ -1,0 +1,215 @@
+// Scenes about drawings reused as images: recorded pictures, sprite
+// sheets and mesh warps.
+internal partial module showcase.scenes {
+	use (
+		std.gfx.canvas::*
+		std.gfx.color::(Color)
+		std.math::(Pi, cos, sin, sqrt)
+		std.math.geom::(Circle, FillRule, LineCap, Path, Point, Rect, StrokeStyle, Transform2D)
+		std.units::(Pixels)
+		showcase.kit::*
+	)
+
+	// A badge centred on (0, 0). It takes a Painter, so the same code draws
+	// onto a canvas or into a recording.
+	def badge(p Painter) {
+		let centre = new Point(0.0, 0.0)
+		let gold = [
+			ColorStop{offset: 0(%), color: rgb(255, 210, 90)},
+			ColorStop{offset: 100(%), color: rgb(230, 110, 30)},
+		]
+		p.fill(new Circle(centre, 50.0), new RadialGradient(centre, 50.0, gold, focus = new Point(-15.0, -18.0)))
+		p.stroke(new Path().circle(centre, 44.0), rgb(255, 255, 255, 200), StrokeStyle{width: 3(px), dash: [6(px), 5(px)]})
+		p.fill(star(new Point(0.0, 3.0), 26.0), white)
+	}
+
+	// Four shapes, each drawn under its own tag, for `Picture.hitTest`: a
+	// stroke, an even-odd star, a shape over another, and one under a
+	// rotation.
+	def taggedShapes(p Painter) {
+		p.save()
+		p.tag(1)
+		let squiggle = new Path().moveTo(50.0, 680.0).cubicTo(100.0, 560.0, 160.0, 700.0, 200.0, 580.0)
+		p.stroke(squiggle, blue, StrokeStyle{width: 10(px), cap: LineCap.Round})
+		p.tag(2)
+		p.fill(star(new Point(270.0, 628.0), 58.0), red, FillRule.EvenOdd)
+		p.tag(3)
+		p.fill(new Circle(new Point(360.0, 620.0), 42.0), green)
+		p.tag(4)
+		p.rotate(Pi / 8.0, new Point(380.0, 650.0))
+		p.fill(box(350.0, 630.0, 410.0, 670.0), orange)
+		p.restore()
+	}
+
+	// Pictures: `record` keeps what a function draws; the recording replays
+	// under any transform, fills shapes as a pattern, and answers which
+	// tagged shape is at a point.
+	def pictures(p Painter, f Faces) {
+		let recorded = record(badge)
+		for let i = 0; i < 7; i++ {
+			let k = 0.4 + float(i) * 0.2
+			p.save()
+			p.translate(60.0 + float(i * i) * 14.0 + float(i) * 30.0, 170.0)
+			p.rotate(float(i) * Pi / 9.0)
+			p.scale(k, k)
+			recorded.replay(p)
+			p.restore()
+		}
+		caption(p, "record(draw) once, replay onto any Painter through its transform", 450.0, 340.0, f)
+
+		// As a pattern the recording's cell is drawn again at the size it is
+		// shown, so it stays sharp at any scale.
+		let cell = box(-60.0, -60.0, 60.0, 60.0)
+		for let (i, k) in [0.25, 0.5, 1.2] {
+			let x = 40.0 + float(i) * 280.0
+			let place = new Transform2D(a = k, d = k, tx = x, ty = 390.0)
+			p.fill(rounded(box(x, 390.0, x + 260.0, 510.0), 18(px)), new Pattern(recorded, cell, transform = place))
+		}
+		caption(p, "the recording as a Pattern paint, drawn again at each scale", 450.0, 535.0, f)
+
+		// Picking: the tagged shapes on the left, and on the right a dot per
+		// point asked, coloured by the tag `hitTest` found there.
+		let tagged = record(taggedShapes)
+		tagged.replay(p)
+		let tagColors = [grey, blue, red, green, orange]
+		for let y = 570.0; y < 690.0; y += 6.0 {
+			for let x = 40.0; x < 420.0; x += 6.0 {
+				let hit = tagged.hitTest(new Point(x, y))
+				let tag = 0
+				tag = hit when hit is int
+				p.fill(new Circle(new Point(x + 440.0, y), tag == 0 ?? (0.8, 2.0)), tagColors[tag])
+			}
+		}
+		caption(p, "tag(id) while drawing (left); hitTest(point) names the topmost tagged shape (right)", 450.0, 715.0, f)
+	}
+
+	// A sprite sheet of four 32x32 tiles drawn in white, so a tint colours
+	// them: a circle, a rounded square, a ring and a diamond.
+	def spriteSheet() Canvas {
+		let sheet = new Canvas(128, 32)
+		sheet.fill(new Circle(new Point(16.0, 16.0), 13.0), white)
+		sheet.fill(rounded(box(36.0, 4.0, 60.0, 28.0), 5(px)), white)
+		let ring = new Path().circle(new Point(80.0, 16.0), 13.0).circle(new Point(80.0, 16.0), 7.0)
+		sheet.fill(ring, white, FillRule.EvenOdd)
+		let diamond = [new Point(112.0, 2.0), new Point(126.0, 16.0), new Point(112.0, 30.0), new Point(98.0, 16.0)]
+		sheet.fill(new Path().polygon(diamond), white)
+		return sheet
+	}
+
+	// The sheet's tile `k`.
+	def tile(k int) Rect {
+		return box(float(k * 32), 0.0, float(k * 32 + 32), 32.0)
+	}
+
+	// Sprites: `drawAtlas` draws many tiles of one sheet in one call, each
+	// with its own source rectangle, transform and tint.
+	def sprites(p Painter, f Faces) {
+		let sheet = spriteSheet()
+		let field = box(20.0, 20.0, 560.0, 400.0)
+		p.fill(field, night)
+
+		// 1500 sprites placed by a small random number generator, so every
+		// run draws the same picture.
+		let sources Rect[]
+		let transforms Transform2D[]
+		let tints Color[]
+		let seed = 12345
+		for let i = 0; i < 1500; i++ {
+			seed = (seed * 1103515245 + 12345) % 2147483648
+			let x = 30.0 + float(seed % 520)
+			let y = 30.0 + float((seed / 520) % 360)
+			let angle = float(seed % 628) / 100.0
+			let size = 0.25 + float(seed % 60) / 100.0
+			// Turned and scaled around the tile's centre, then moved to (x, y).
+			let (c, s) = (cos(angle) * size, sin(angle) * size)
+			let placed = new Transform2D(a = c, b = s, c = -s, d = c, tx = x, ty = y)
+			sources.push(tile(seed % 4))
+			transforms.push(placed.then(new Transform2D(tx = -16.0, ty = -16.0)))
+			tints.push(rgb(90 + seed % 166, 90 + (seed / 7) % 166, 90 + (seed / 13) % 166, 210))
+		}
+		p.save()
+		p.clip(field)
+		p.drawAtlas(sheet, sources, transforms, tints)
+		p.restore()
+		caption(p, "1500 sprites in one drawAtlas call: transform and tint each", 290.0, 425.0, f)
+
+		// A tile map: whole-pixel sprites side by side.
+		let kindColors = [green, blue, orange, red]
+		let mapSources Rect[]
+		let mapTransforms Transform2D[]
+		let mapTints Color[]
+		for let row = 0; row < 12; row++ {
+			for let col = 0; col < 9; col++ {
+				let kind = (row * 7 + col * 3 + row * col) % 4
+				mapSources.push(tile(kind))
+				mapTransforms.push(new Transform2D(tx = 590.0 + float(col) * 32.0, ty = 20.0 + float(row) * 32.0))
+				mapTints.push(kindColors[kind])
+			}
+		}
+		p.drawAtlas(sheet, mapSources, mapTransforms, mapTints)
+		caption(p, "a tile map from the same sheet", 734.0, 425.0, f)
+
+		p.fill(box(20.0, 450.0, 148.0, 482.0), night)
+		p.drawImage(sheet, new Point(20.0, 450.0))
+		caption(p, "the sheet", 84.0, 505.0, f)
+	}
+
+	// A card to warp: a checker, a gradient band and a word.
+	def card(f Faces) Canvas {
+		let cv = new Canvas(240, 160)
+		for let row = 0; row < 8; row++ {
+			for let col = 0; col < 12; col++ {
+				let (x, y) = (float(col) * 20.0, float(row) * 20.0)
+				cv.fill(box(x, y, x + 20.0, y + 20.0), (col + row) % 2 == 0 ?? (paper, blue))
+			}
+		}
+		cv.fill(box(0.0, 60.0, 240.0, 100.0), linear(new Point(0.0, 0.0), new Point(240.0, 0.0), [red, amber, green]))
+		cv.fillText("WARP", new Point(120.0, 93.0), TextStyle{face: f.text, size: 40(px), align: TextAlign.Center}, white)
+		return cv
+	}
+
+	// Mesh warp: `drawImage` with a grid of points stretches the image's own
+	// even grid onto it, so rows of points bend the image.
+	def warps(p Painter, f Faces) {
+		let img = card(f)
+
+		// Two rows of two points: a trapezoid, the top edge narrower.
+		p.drawImage(img, [
+			[new Point(80.0, 40.0), new Point(220.0, 40.0)],
+			[new Point(30.0, 190.0), new Point(270.0, 190.0)],
+		])
+		caption(p, "a trapezoid", 150.0, 215.0, f)
+
+		// Rows of points on a sine.
+		let wave Point[][]
+		for let row = 0; row <= 6; row++ {
+			let points Point[]
+			for let col = 0; col <= 12; col++ {
+				let lift = 14.0 * sin(float(col) * 0.7 + float(row) * 0.2)
+				points.push(new Point(320.0 + float(col) * 20.0, 40.0 + float(row) * 25.0 + lift))
+			}
+			wave.push(points)
+		}
+		p.drawImage(img, wave)
+		caption(p, "a wave", 440.0, 215.0, f)
+
+		// A lens: points pushed out from the centre, most near it. (u, v)
+		// run from -1 to 1 across the card.
+		let lens Point[][]
+		for let row = 0; row <= 16; row++ {
+			let points Point[]
+			for let col = 0; col <= 24; col++ {
+				let (u, v) = (float(col) / 12.0 - 1.0, float(row) / 8.0 - 1.0)
+				let distance = sqrt(u * u + v * v)
+				let push = distance < 1.0 ?? (1.0 + 0.45 * (1.0 - distance * distance), 1.0)
+				let (bu, bv) = ((u * push).clamp(-1.0, 1.0), (v * push).clamp(-1.0, 1.0))
+				points.push(new Point(730.0 + bu * 120.0, 115.0 + bv * 80.0))
+			}
+			lens.push(points)
+		}
+		p.drawImage(img, lens)
+		caption(p, "a lens", 730.0, 215.0, f)
+
+		caption(p, "drawImage(src, mesh Point[][]): the image's even grid onto any grid of points", 450.0, 250.0, f)
+	}
+}

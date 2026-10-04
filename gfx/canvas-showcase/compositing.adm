@@ -1,0 +1,198 @@
+// Scenes about how drawings combine: drawing state, clips, Porter-Duff
+// operators, blend modes, effects and layers.
+internal partial module showcase.scenes {
+	use (
+		std.gfx::(CircleMask)
+		std.gfx.canvas::*
+		std.gfx.color::(BlendMode)
+		std.math::(Pi)
+		std.math.geom::(Circle, LineCap, Path, Point, StrokeStyle, Vec2)
+		std.units::(Percent, Pixels)
+		showcase.kit::*
+	)
+
+	// State: transforms, alpha, clips by path and by mask, hit testing, the
+	// Porter-Duff operators and the blend modes. `save` and `restore` bracket
+	// every change of state.
+	def compositing(p Painter, f Faces) {
+		// A fan of squares, each rotated a little more around one point.
+		for let i = 0; i < 12; i++ {
+			p.save()
+			p.rotate(float(i) * Pi / 12.0, new Point(110.0, 110.0))
+			p.setAlpha(0.35)
+			p.fill(box(60.0, 60.0, 160.0, 160.0), rgb(40 + 16 * i, 90, 230 - 14 * i))
+			p.restore()
+		}
+		caption(p, "rotate + alpha", 110.0, 230.0, f)
+
+		// Stripes clipped to a star.
+		p.save()
+		p.clip(star(new Point(330.0, 110.0), 90.0))
+		for let i = 0; i < 20; i++ {
+			let x = 230.0 + float(i) * 10.0
+			p.fill(box(x, 10.0, x + 5.0, 210.0), rgb(200, 70 + 8 * i, 60))
+		}
+		p.restore()
+		caption(p, "clip to a path", 330.0, 230.0, f)
+
+		// A gradient clipped by a circle mask with a 30 pixel soft edge.
+		p.save()
+		p.clip(new CircleMask(new Circle(new Point(540.0, 110.0), 90.0), 30.0))
+		p.fill(box(440.0, 10.0, 640.0, 210.0), linear(new Point(440.0, 0.0), new Point(640.0, 200.0), [rgb(250, 200, 60), blue]))
+		p.restore()
+		caption(p, "clip by a feathered mask", 540.0, 230.0, f)
+
+		// Hit testing follows the transform: the circle is drawn translated,
+		// and the dots that fall inside it turn red.
+		p.save()
+		p.translate(700.0, 40.0)
+		let target = new Path().circle(new Point(80.0, 70.0), 60.0)
+		for let row = 0; row < 14; row++ {
+			for let col = 0; col < 16; col++ {
+				let at = new Point(705.0 + float(col) * 10.0, 45.0 + float(row) * 10.0)
+				let inside = p.isInPath(target, at)
+				p.save()
+				p.resetTransform()
+				p.fill(new Circle(at, 2.5), inside ?? (red, rgb(190, 190, 200)))
+				p.restore()
+			}
+		}
+		p.stroke(target, ink, StrokeStyle{width: 1.5(px)})
+		p.restore()
+		caption(p, "isInPath", 780.0, 230.0, f)
+
+		// Porter-Duff: a blue circle (the destination), then a red square
+		// drawn with each operator.
+		let operators = [
+			Composite.SourceOver, Composite.SourceIn, Composite.SourceOut, Composite.SourceAtop,
+			Composite.DestinationOver, Composite.DestinationIn, Composite.DestinationOut, Composite.DestinationAtop,
+			Composite.Xor, Composite.Copy, Composite.Clear, Composite.Plus,
+		]
+		for let (i, operator) in operators {
+			let cell = new Canvas(120, 90)
+			cell.fill(new Circle(new Point(48.0, 40.0), 30.0), blue)
+			cell.setComposite(operator)
+			cell.fill(box(50.0, 30.0, 100.0, 80.0), rgb(220, 60, 50, 220))
+
+			let x = 30.0 + float(i % 6) * 145.0
+			let y = 250.0 + float(i / 6) * 120.0
+			p.fill(box(x, y, x + 120.0, y + 90.0), rgb(230, 228, 222))
+			p.drawImage(cell, new Point(x, y))
+			caption(p, operator.name, x + 60.0, y + 106.0, f)
+		}
+
+		// Blend modes: a warm gradient over a sky-like ramp.
+		let modes = [
+			BlendMode.Multiply, BlendMode.Screen, BlendMode.Overlay, BlendMode.SoftLight, BlendMode.ColorDodge,
+			BlendMode.ColorBurn, BlendMode.Difference, BlendMode.Hue, BlendMode.Luminosity,
+		]
+		let backdrop = linear(new Point(0.0, 0.0), new Point(0.0, 70.0), [rgb(20, 60, 120), rgb(120, 200, 230), rgb(250, 250, 240)])
+		let warm = linear(new Point(0.0, 0.0), new Point(80.0, 0.0), [rgb(255, 60, 20), rgb(250, 210, 40)])
+		for let (i, mode) in modes {
+			let x = 30.0 + float(i) * 95.0
+			p.save()
+			p.translate(x, 520.0)
+			p.fill(box(0.0, 0.0, 80.0, 110.0), backdrop)
+			p.setBlend(mode)
+			p.fill(new Circle(new Point(40.0, 55.0), 32.0), warm)
+			p.restore()
+			caption(p, mode.name, x + 40.0, 650.0, f)
+		}
+		caption(p, "12 Porter-Duff operators; 30 blend modes (9 shown)", 450.0, 685.0, f)
+	}
+
+	// One sample of the effects scene: what the caption says, and the
+	// effects of its group.
+	struct EffectSample {
+		name    string
+		effects Effect[]
+	}
+
+	// Effects on groups: shadows, glows, outlines, blur, backdrop blur,
+	// colour adjustment. A group is drawn offscreen and its effects apply to
+	// the result as a whole.
+	def effects(p Painter, f Faces) {
+		// Stripes behind the second row, so glows and backdrop blur show.
+		for let i = 0; i < 45; i++ {
+			let x = float(i) * 20.0
+			p.fill(box(x, 270.0, x + 10.0, 470.0), rgb(210, 214, 226))
+		}
+
+		let halo = DropShadow{offset: new Vec2(0.0, 0.0), blur: 4(px), spread: 6(px), color: blue}
+		let samples = [
+			EffectSample{name: "drop shadow", effects: [DropShadow{offset:new Vec2(6.0, 8.0), blur:10(px)}]},
+			EffectSample{name: "outer glow", effects: [OuterGlow{blur:16(px), spread:2(px), color:blue, blend:BlendMode.Normal}]},
+			EffectSample{name: "inner shadow", effects: [InnerShadow{offset:new Vec2(4.0, 5.0), blur:6(px)}]},
+			EffectSample{name: "inner glow", effects: [InnerGlow{blur:10(px)}]},
+			EffectSample{name: "outline", effects: [Outline{width:5(px), paint:ink}]},
+			EffectSample{name: "outline inside", effects: [Outline{width:5(px), paint:ink, position:OutlinePosition.Inside}]},
+			EffectSample{name: "blur", effects: [Blur{radius:6(px)}]},
+			EffectSample{name: "backdrop blur", effects: [Blur{radius:8(px), backdrop:true}]},
+			EffectSample{name: "saturation -1", effects: [ColorAdjust{saturation:-1.0}]},
+			EffectSample{name: "spread + outline", effects: [halo, Outline{width:2(px), paint:white}]},
+		]
+		for let (i, sample) in samples {
+			let x = 90.0 + float(i % 5) * 175.0
+			let y = 120.0 + float(i / 5) * 250.0
+			p.beginGroup(effects = sample.effects)
+			if sample.name == "backdrop blur" {
+				// A frosted pane: what blurs is the stripes under it.
+				p.fill(rounded(box(x - 60.0, y - 60.0, x + 60.0, y + 60.0), 18(px)), rgb(255, 255, 255, 80))
+			} else {
+				p.fill(rounded(box(x - 55.0, y - 55.0, x + 55.0, y + 55.0), 18(px)), rgb(240, 120, 40))
+				p.fill(new Circle(new Point(x + 10.0, y - 10.0), 22.0), blue)
+			}
+			p.endGroup()
+			caption(p, sample.name, x, y + 90.0, f)
+		}
+		caption(p, "effects apply to a whole group, drawn offscreen and composited once", 450.0, 508.0, f)
+	}
+
+	// Layers: a stack with a blend mode, an effect, a clipping layer and a
+	// masked folder, flattened into one image.
+	def layers(p Painter, f Faces) {
+		let stack = new Layers(900, 420, paper)
+
+		let sky = addLayer(stack, "sky")
+		sky.fill(box(0.0, 0.0, 900.0, 420.0), linear(new Point(0.0, 0.0), new Point(0.0, 420.0), [rgb(30, 50, 110), rgb(240, 150, 90)]))
+
+		let sun = stack.add("sun")
+		sun.canvas().fill(new Circle(new Point(620.0, 250.0), 110.0), rgb(255, 220, 120))
+		sun.blend = BlendMode.Screen
+		sun.effects = [OuterGlow{blur:30(px), color:rgb(255, 200, 120, 220)}]
+
+		let ridge = new Path().moveTo(0.0, 330.0)
+		ridge.quadTo(220.0, 200.0, 450.0, 320.0).quadTo(680.0, 250.0, 900.0, 310.0)
+		ridge.lineTo(900.0, 420.0).lineTo(0.0, 420.0).close()
+		addLayer(stack, "hills").fill(ridge, rgb(40, 70, 60))
+
+		// A clipping layer shows only where the layer below it has pixels:
+		// these stripes cover the hills and nothing else.
+		let texture = stack.add("texture")
+		for let i = 0; i < 90; i++ {
+			let x = float(i) * 10.0
+			texture.canvas().fill(box(x, 0.0, x + 4.0, 420.0), rgb(90, 140, 100))
+		}
+		texture.clipBelow = true
+		texture.opacity = 45(%)
+
+		// A folder of layers, faded as one and masked to a soft circle.
+		let flock = stack.addGroup("birds")
+		flock.opacity = 70(%)
+		for let i = 0; i < 6; i++ {
+			let x = 160.0 + float(i) * 60.0
+			let y = 90.0 + float(i % 3) * 25.0
+			let wings = new Path().moveTo(x - 18.0, y).quadTo(x - 8.0, y - 12.0, x, y).quadTo(x + 8.0, y - 12.0, x + 18.0, y)
+			flock.add("bird").canvas().stroke(wings, rgb(20, 20, 30), StrokeStyle{width: 3(px), cap: LineCap.Round})
+		}
+		flock.mask = new CircleMask(new Circle(new Point(300.0, 110.0), 170.0), 80.0)
+
+		p.drawImage(stack.flatten(), new Point(0.0, 0.0))
+		caption(p, "Layers: Screen blend + glow, a clipping layer on the hills, a masked folder", 450.0, 440.0, f)
+	}
+
+	// Adds a layer to the stack and returns the canvas to draw it on.
+	def addLayer(stack Layers, name string) Canvas {
+		return stack.add(name).canvas()
+	}
+}

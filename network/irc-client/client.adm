@@ -1,0 +1,65 @@
+// Joins an IRC channel and prints what happens there: messages, and people
+// joining, leaving or changing their nickname.
+//
+//   adm run network/irc-client/client.adm
+//   adm run network/irc-client/client.adm -- irc.libera.chat "#adm"
+//
+// The server defaults to irc.libera.chat and the channel to #libera.
+// Press Ctrl+C to stop.
+application ircClient {
+	use (
+		std.crypto::(randRange)
+		std.net.irc
+	)
+
+	// The program's entry point: `args[1]` is the server and `args[2]` the
+	// channel, both optional. Fails when the server cannot be reached or
+	// refuses the nickname or the channel.
+	def new(args string[]) !int {
+		let server = args.len() > 1 ?? (args[1], "irc.libera.chat")
+		let room = args.len() > 2 ?? (args[2], "#libera")
+
+		// A server allows each nickname once, so a random number keeps two
+		// runs of this program from colliding.
+		let nick = "adm{randRange(1000, 9999)}"
+		let client = new irc.Client(nick, irc.Security.Tls)
+
+		println("connecting to {server} as {nick}...")
+		try client.connect(server)
+		try client.join(room)
+		println("joined {room}")
+
+		// `messages()` gives each message as it arrives; the loop ends when
+		// the connection does.
+		for let message in client.messages() {
+			let line = describe(message)
+			println(line) unless line == ""
+		}
+		println("disconnected")
+		return 0
+	}
+
+	// One line of text for a message, or "" for the kinds this program does
+	// not show.
+	def describe(message irc.Message) string {
+		let who = message.nick()
+		// Messages can carry colour and bold codes a terminal would print
+		// as garbage.
+		let text = irc.stripFormatting(message.text())
+
+		match message.command {
+			case "PRIVMSG":
+				return "<{who}> {text}"
+			case "JOIN":
+				return "--> {who} joined"
+			case "PART":
+				return "<-- {who} left"
+			case "QUIT":
+				return "<-- {who} quit ({text})"
+			case "NICK":
+				return "--- {who} is now {message.target()}"
+			default:
+				return ""
+		}
+	}
+}

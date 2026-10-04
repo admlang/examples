@@ -1,0 +1,38 @@
+// Converts an image from one format to another.
+//
+//   adm run gfx/image-convert/convert.adm -- photo.bmp photo.png
+//
+// Formats it reads and writes, by extension:
+//
+//   .png  .apng  .jpg  .gif  .webp  .bmp  .tif  .tga
+//   .pcx  .psd   .ico  .cur  .ani   .xpm
+//
+// It also reads .svg, which it cannot write.
+//
+// The input's format is found from the file's content, and the output's
+// from its extension. An animated image keeps only its first frame.
+application convert {
+	use std.formats.image
+
+	// The program's entry point: `args[1]` is the image to read and
+	// `args[2]` the file to write. Fails when the input cannot be read or is
+	// not an image, or when the output's extension is not an image format
+	// or the file cannot be written.
+	def new(args string[]) !int {
+		if args.len() != 3 {
+			println("usage: convert INPUT OUTPUT")
+			return 1
+		}
+		let input = args[1]
+		let output = args[2]
+
+		// `load` decodes the file into pixels; `save` encodes them again in
+		// the format the extension names.
+		let img = try image.load(input)
+		try img.save(output)
+
+		let size = img.size()
+		println("{input} -> {output} ({size.width}x{size.height} pixels)")
+		return 0
+	}
+}

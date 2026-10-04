@@ -1,0 +1,56 @@
+// Prints what a WebP file holds: its size, whether it is lossy or lossless,
+// whether it has transparency, the frames of an animation, and its metadata.
+// Given an output file, it also converts the image.
+//
+//   adm run gfx/webp-info/main.adm -- photo.webp
+//   adm run gfx/webp-info/main.adm -- anim.webp first-frame.png
+//
+// The output's format comes from its extension; an animation keeps only
+// its first frame.
+application WebpInfo {
+	use (
+		std.formats.image::(WEBP)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is the WebP file and `args[2]`
+	// the file to write, optional. Fails when the file cannot be read or is
+	// not a WebP, or the output cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: webp-info FILE.webp [OUTPUT]")
+			return 1
+		}
+		let path = args[1]
+
+		// `image.load` would give the picture only. The WEBP codec keeps
+		// what else the file says: `decode` returns the first frame and
+		// fills the codec's fields.
+		let webp = new WEBP()
+		let img = try webp.decode(try os.readFile(path))
+
+		println("{path}")
+		println("  size      {img.size().width}x{img.size().height}")
+		println("  encoding  {webp.lossy ?? ("lossy (VP8)", "lossless (VP8L)")}")
+		println("  alpha     {webp.hasAlpha ?? ("yes", "no")}")
+		if webp.frames.len() > 1 {
+			let loops = webp.loopCount == 0 ?? ("forever", "{webp.loopCount} times")
+			println("  animation {webp.frames.len()} frames, loops {loops}")
+			for let (i, frame) in webp.frames {
+				println("    frame {i}: {frame.length.milliseconds()} ms")
+			}
+		}
+		// Metadata is shown by its size: a colour profile, camera data (EXIF)
+		// and editing data (XMP).
+		println("  icc       {webp.iccProfile.len()} bytes") when webp.iccProfile.len() > 0
+		println("  exif      {webp.exif.len()} bytes") when webp.exif.len() > 0
+		println("  xmp       {webp.xmp.len()} bytes") when webp.xmp.len() > 0
+		// A WebP file is a list of named chunks.
+		println("  chunks    {webp.chunks.join(" ")}")
+		return 0 when args.len() < 3
+
+		try img.save(args[2])
+		println("wrote {args[2]}")
+		return 0
+	}
+}

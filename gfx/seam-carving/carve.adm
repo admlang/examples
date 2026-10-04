@@ -1,0 +1,41 @@
+// Resizes an image with seam carving: instead of squashing the whole
+// picture, it removes the paths of pixels that matter least, so the subject
+// keeps its shape while the background gives.
+//
+//   adm run --release gfx/seam-carving/carve.adm -- photo.jpg narrow.jpg 500
+//   adm run --release gfx/seam-carving/carve.adm -- photo.jpg small.jpg 500 300
+//
+// The arguments are the input, the output, the new width and, optionally,
+// the new height (the image keeps its height without one). A size larger
+// than the image inserts paths instead of removing them.
+application carve {
+	use (
+		std.formats.image
+		std.gfx.processing.transform::(ResizeMode, resize)
+		std.math.geom::(Size)
+	)
+
+	// The program's entry point. Fails when the input cannot be read or is
+	// not an image, or the output cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 4 {
+			println("usage: carve INPUT OUTPUT WIDTH [HEIGHT]")
+			return 1
+		}
+		let img = try image.load(args[1])
+		let before = img.size()
+
+		// The new size, as whole numbers of pixels.
+		let width = args[3].toInt<uint>()
+		let height = args.len() > 4 ?? (args[4].toInt<uint>(), before.height)
+
+		// `resize` changes the image in place. ContentAware is the seam
+		// carving mode; the others (Bilinear, Bicubic, ...) scale every
+		// pixel alike.
+		resize(img, new Size<uint>(width, height), ResizeMode.ContentAware)
+
+		try img.save(args[2])
+		println("{args[1]}: {before.width}x{before.height} -> {args[2]}: {width}x{height}")
+		return 0
+	}
+}

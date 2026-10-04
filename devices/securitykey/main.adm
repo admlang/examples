@@ -1,0 +1,94 @@
+// Registers a FIDO2 security key on USB for a made-up site and signs in
+// with it, the way a browser and a server would: the relying party (the
+// site) makes the options, the client talks to the key, and the relying
+// party checks what comes back. Touch the key when it blinks (twice).
+//
+//   adm run devices/securitykey/main.adm                      register, then sign in
+//   adm run devices/securitykey/main.adm -- info              only show what the key supports
+//   adm run devices/securitykey/main.adm -- ceremony 1234     the same, for a key with a PIN
+//
+// The site is example.com and the credential is not discoverable, so
+// nothing is stored on the key.
+application SecurityKeyDemo {
+	use (
+		std.data.encoding::(Base64)
+		std.proto.auth.webauthn::*
+	)
+
+	// The program's entry point: `args[1]` is the mode (`ceremony` or
+	// `info`) and `args[2]` the key's PIN, both optional. Fails when no key
+	// is plugged in, it does not answer or is not touched in time, or the
+	// relying party rejects an answer.
+	def new(args string[]) !int {
+		let mode = args.len() > 1 ?? (args[1], "ceremony")
+
+		let keys = try securityKeys()
+		fail "no FIDO security key is plugged in" when keys.len() == 0
+		println("using {keys[0].name} ({keys[0].node})")
+
+		// Security keys on USB speak over HID, the protocol of keyboards and mice.
+		let hid = new HIDTransport()
+		hid.timeout = 60s
+		hid.onKeepalive = def (status int) {
+			// Status 2: the key is waiting for a touch.
+			println("  waiting for a touch…") when status == 2
+		}
+		try hid.open(keys[0])
+
+		let key = new SecurityKey(hid)
+		key.pin = args[2] when args.len() > 2
+
+		if mode == "info" {
+			try showInfo(key)
+		} else {
+			try ceremony(key)
+		}
+		try hid.close()
+		return 0
+	}
+
+	// Prints what the key says about itself; needs no touch. Fails when the
+	// key does not answer.
+	def showInfo(key SecurityKey) !none {
+		let info = try key.info()
+		println("versions:    {info.versions.join(", ")}")
+		println("extensions:  {info.extensions.join(", ")}")
+		println("aaguid:      {info.aaguid.hex().lower()}")
+		println("PIN set:     {info.option("clientPin")}")
+		println("discoverable credentials: {info.option("rk")}")
+		println("PIN protocols: {info.pinUvAuthProtocols}")
+		return none
+	}
+
+	// Registers a credential and signs in with it. Fails when the key
+	// refuses, is not touched in time, or the relying party rejects an answer.
+	def ceremony(key SecurityKey) !none {
+		let site = new RelyingParty("example.com", "Example", "https://example.com")
+		let client = new Client("https://example.com", key)
+		let user = User{id: byte[1, 2, 3, 4], name: "alice@example.com", displayName: "Alice"}
+
+		// Registration: the site asks for a new credential, the key makes a
+		// key pair and signs the request, and the site checks and keeps the
+		// public key.
+		println("touch the key to register…")
+		let registration = try site.beginRegistration(user, [], ResidentKey.Discouraged)
+		let credential = try site.finishRegistration(registration, try client.create(registration))
+		println("registered: credential {base64(credential.id)[:16]}…, {credential.algorithm}, attestation {credential.attestationFormat}")
+
+		// Signing in: the site sends a challenge, the key signs it, and the
+		// site checks the signature against the public key it kept.
+		println("touch the key to sign in…")
+		let login = try site.beginAuthentication([credential.descriptor()])
+		let result = try site.finishAuthentication(login, try client.get(login), credential)
+		println("signed in: counter {result.credential.signCount}, user verified {result.userVerified}")
+		return none
+	}
+
+	// The bytes as URL-safe base64 text, the way WebAuthn writes ids.
+	def base64(bytes byte[]) string {
+		let codec = new Base64()
+		codec.urlSafe = true
+		codec.padded = false
+		return codec.encode(bytes)
+	}
+}

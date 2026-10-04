@@ -1,0 +1,37 @@
+// Takes one picture with the first camera and saves it as snapshot.jpg.
+//
+//   adm run devices/camera/main.adm
+application Snapshot {
+	use (
+		std.devices
+		std.os
+	)
+
+	// The program's entry point. Fails when there is no camera, it cannot be
+	// opened, or the picture cannot be written.
+	def new(args string[]) !int {
+		let cameras = try devices.cameras()
+		fail "no camera on this machine" when cameras.len() == 0
+
+		// Ask for 1280x720; `camera.width` and `camera.height` say what the
+		// camera gave.
+		let camera = try devices.openCamera(cameras[0].id, 1280, 720)
+		// `defer` runs when the function returns, on any path.
+		defer camera.close()
+		println("{cameras[0].name} at {camera.width}x{camera.height}")
+
+		// The first frames of a camera are dark until its exposure settles.
+		try camera.warmup()
+
+		// Most cameras send each frame as a complete JPEG file; some send
+		// raw pixels, which this example does not convert.
+		let shot = try camera.frame()
+		fail "this camera sends raw frames, not JPEG" unless shot.format == devices.PixelFormat.Mjpeg
+
+		let name = "snapshot.jpg"
+		try os.writeFile(name, shot.data)
+		println("wrote {name}, {shot.data.len()} bytes")
+
+		return 0
+	}
+}

@@ -1,0 +1,51 @@
+// Lists the images inside an icon (.ico) or cursor (.cur) file: an icon
+// file holds the same picture at several sizes. Given a size, it also
+// writes the icon at that size to a new .ico file.
+//
+//   adm run gfx/icon-sizes/main.adm -- app.ico
+//   adm run gfx/icon-sizes/main.adm -- app.ico 20 app-20.ico
+application IconSizes {
+	use (
+		std.formats.image::(ICO)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is the icon file; `args[2]` and
+	// `args[3]`, optional, are a size in pixels and the file to write.
+	// Fails when the file cannot be read or is not an icon, or the output
+	// cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: icon-sizes FILE.ico [SIZE OUTPUT.ico]")
+			return 1
+		}
+
+		// `image.load` would give one image. The ICO codec keeps every entry.
+		let icon = new ICO()
+		_ = try icon.decode(try os.readFile(args[1]))
+
+		for let (i, entry) in icon.entries() {
+			let size = "{entry.width}x{entry.height}".padEnd(9)
+			// An entry is stored as a PNG file or as an uncompressed bitmap.
+			let stored = entry.png ?? ("png", "bitmap")
+			// The hotspot is the pixel of a cursor that points; icons have none.
+			println("{i.str().padStart(3)}  {size} {entry.bitDepth.str().padStart(2)}-bit  {stored.padEnd(6)}  hotspot {entry.hotspotX},{entry.hotspotY}")
+		}
+		return 0 when args.len() < 4
+
+		let size = args[2].toInt<int>()
+		if size <= 0 || size > 256 {
+			println("the size must be 1 to 256, got {args[2]}")
+			return 1
+		}
+
+		// `image(size)` gives the entry of that size when the file has one,
+		// else the nearest larger entry scaled down.
+		let img = try icon.image(size)
+		let out = new ICO()
+		out.add(img)
+		try os.writeFile(args[3], try out.encode())
+		println("wrote {args[3]}: {img.size().width}x{img.size().height}")
+		return 0
+	}
+}

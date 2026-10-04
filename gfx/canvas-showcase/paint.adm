@@ -1,0 +1,166 @@
+// Scenes about what a shape is filled with: gradients, patterns, images,
+// noise and mesh gradients.
+internal partial module showcase.scenes {
+	use (
+		std.gfx.canvas::*
+		std.gfx.color::(Color)
+		std.math::(Pi, sin)
+		std.math.geom::(Circle, Edges, Point, Transform2D)
+		std.units::(Pixels)
+		showcase.kit::*
+	)
+
+	// Paint: gradients in three colour spaces, conic, radial with a focus,
+	// spreads, a pattern, image sampling, nine-slice.
+	def paint(p Painter, f Faces) {
+		// The same two colours blended in each colour space.
+		let redToBlue = [
+			ColorStop{offset: 0(%), color: rgb(255, 40, 40)},
+			ColorStop{offset: 100(%), color: rgb(40, 90, 255)},
+		]
+		for let (i, space) in [ColorSpace.SRGB, ColorSpace.LinearRGB, ColorSpace.OKLab] {
+			let y = 30.0 + float(i) * 50.0
+			let gradient = new LinearGradient(new Point(40.0, 0.0), new Point(440.0, 0.0), redToBlue, space = space)
+			p.fill(box(40.0, y, 440.0, y + 36.0), gradient)
+			let name = space == ColorSpace.OKLab ?? ("OKLab (default)", space.name)
+			p.fillText(name, new Point(450.0, y + 24.0), TextStyle{face: f.text, size: 14(px)}, ink)
+		}
+
+		let rainbow = [rgb(255, 0, 0), rgb(255, 200, 0), rgb(0, 200, 90), rgb(0, 120, 255), rgb(170, 0, 255), rgb(255, 0, 0)]
+		let wheel = new Point(660.0, 105.0)
+		p.fill(new Circle(wheel, 80.0), conic(wheel, 0.0, rainbow))
+		caption(p, "conic", 660.0, 205.0, f)
+
+		let ball = new Point(810.0, 105.0)
+		let shine = [
+			ColorStop{offset: 0(%), color: white},
+			ColorStop{offset: 100(%), color: rgb(40, 60, 140)},
+		]
+		p.fill(new Circle(ball, 70.0), new RadialGradient(ball, 70.0, shine, focus = new Point(785.0, 80.0)))
+		caption(p, "radial with a focus", 810.0, 205.0, f)
+
+		// What a gradient does outside its two ends.
+		let dusk = [
+			ColorStop{offset: 0(%), color: rgb(30, 30, 60)},
+			ColorStop{offset: 100(%), color: rgb(250, 200, 60)},
+		]
+		for let (i, spread) in [Spread.Pad, Spread.Repeat, Spread.Reflect] {
+			let x = 40.0 + float(i) * 150.0
+			let gradient = new LinearGradient(new Point(x + 50.0, 0.0), new Point(x + 80.0, 0.0), dusk, spread = spread)
+			p.fill(box(x, 230.0, x + 130.0, 320.0), gradient)
+			caption(p, spread.name, x + 65.0, 338.0, f)
+		}
+
+		// A checker tile, repeated under a rotation, as a pattern paint.
+		let tile = new Canvas(16, 16)
+		tile.clear(rgb(250, 250, 250))
+		tile.fill(box(0.0, 0.0, 8.0, 8.0), blue)
+		tile.fill(box(8.0, 8.0, 16.0, 16.0), blue)
+		let turned = new Transform2D().rotation(Pi / 6.0)
+		p.fill(rounded(box(500.0, 230.0, 860.0, 320.0), 20(px)), new Pattern(tile, transform = turned))
+		caption(p, "pattern, rotated", 680.0, 338.0, f)
+
+		// One 8x8 image scaled up three ways.
+		let tiny = new Canvas(8, 8)
+		for let y = 0; y < 8; y++ {
+			for let x = 0; x < 8; x++ {
+				tiny.fill(box(float(x), float(y), float(x + 1), float(y + 1)), rgb(30 * x, 255 - 30 * y, (x * y * 4) % 256))
+			}
+		}
+		for let (i, sampling) in [Sampling.Nearest, Sampling.Bilinear, Sampling.Bicubic] {
+			let x = 40.0 + float(i) * 170.0
+			p.drawImage(tiny, box(x, 370.0, x + 150.0, 520.0), sampling)
+			caption(p, sampling.name, x + 75.0, 540.0, f)
+		}
+
+		// Nine-slice: the corners keep their size, the edges stretch.
+		let frame = new Canvas(30, 30)
+		frame.fill(rounded(box(0.0, 0.0, 30.0, 30.0), 10(px)), green)
+		frame.fill(rounded(box(4.0, 4.0, 26.0, 26.0), 7(px)), rgb(236, 250, 242))
+		let insets = new Edges<Pixels>(10(px))
+		p.drawImage(frame, box(560.0, 370.0, 860.0, 440.0), insets)
+		p.drawImage(frame, box(560.0, 455.0, 700.0, 520.0), insets)
+		p.drawImage(frame, box(720.0, 455.0, 860.0, 520.0), insets)
+		caption(p, "nine-slice", 710.0, 540.0, f)
+
+		caption(p, "gradients are dithered by blue noise; images are sampled in linear light", 450.0, 610.0, f)
+	}
+
+	// A conic gradient through the colours, evenly spaced around `center`.
+	def conic(center Point, angle float, colors Color[]) ConicGradient {
+		let stops ColorStop[]
+		for let (i, color) in colors {
+			let offset = 100.0 * float(i) / float((colors.len() - 1).max(1))
+			stops.push(ColorStop{offset: offset * 1(%), color: color})
+		}
+		return new ConicGradient(center, angle, stops)
+	}
+
+	// Noise paints: fractal noise through a list of colours. The arguments
+	// are the feature size in pixels, the colours, the octaves and the seed.
+	def noises(p Painter, f Faces) {
+		let clouds = noise(90.0, [rgb(70, 130, 220), rgb(250, 250, 255)], 5, 3)
+		p.fill(rounded(box(40.0, 20.0, 300.0, 130.0), 14(px)), clouds)
+		caption(p, "clouds", 170.0, 150.0, f)
+
+		let wood = noise(40.0, [rgb(90, 50, 25), rgb(200, 140, 80), rgb(110, 65, 30), rgb(220, 170, 110)], 3, 7)
+		p.fill(rounded(box(320.0, 20.0, 580.0, 130.0), 14(px)), wood)
+		caption(p, "wood", 450.0, 150.0, f)
+
+		let grain = noise(6.0, [rgb(40, 40, 46), rgb(120, 120, 130)], 2, 11)
+		p.fill(rounded(box(600.0, 20.0, 860.0, 130.0), 14(px)), grain)
+		caption(p, "grain", 730.0, 150.0, f)
+	}
+
+	// Mesh gradients: colours at the corners of a bendable grid, blended
+	// smoothly. A mesh of `columns` by `rows` cells takes
+	// (columns + 1) * (rows + 1) points and colours, row by row.
+	def meshGradients(p Painter, f Faces) {
+		// A 4x3 grid whose points are pushed off the grid by sines.
+		let palette = [rgb(255, 80, 60), rgb(255, 200, 40), rgb(60, 200, 120), rgb(40, 120, 255), rgb(170, 60, 230)]
+		let points Point[]
+		let colors Color[]
+		for let row = 0; row <= 3; row++ {
+			for let col = 0; col <= 4; col++ {
+				let x = 30.0 + float(col) * 90.0 + 18.0 * sin(float(row) * 1.3 + float(col))
+				let y = 30.0 + float(row) * 110.0 + 20.0 * sin(float(col) * 1.7 + float(row) * 0.5)
+				points.push(new Point(x, y))
+				colors.push(palette[(row * 2 + col) % 5])
+			}
+		}
+		let bent = new MeshGradient(4, 3, points, colors)
+		p.fill(bent.outline(), bent)
+		caption(p, "a 4x3 grid bent by its points; fill outline() to cover it", 215.0, 410.0, f)
+
+		// The same nine corners blended in each colour space.
+		let black = rgb(0, 0, 0)
+		let corners = [
+			rgb(255, 0, 0), white, rgb(0, 0, 255),
+			white, black, white,
+			rgb(0, 255, 0), white, rgb(255, 255, 0),
+		]
+		for let (i, space) in [ColorSpace.SRGB, ColorSpace.LinearRGB, ColorSpace.OKLab] {
+			let x = 450.0 + float(i) * 145.0
+			let grid Point[]
+			for let row = 0; row <= 2; row++ {
+				for let col = 0; col <= 2; col++ {
+					grid.push(new Point(x + float(col) * 65.0, 40.0 + float(row) * 65.0))
+				}
+			}
+			let square = new MeshGradient(2, 2, grid, corners, space = space)
+			p.fill(square.outline(), square)
+			caption(p, space == ColorSpace.OKLab ?? ("OKLab (default)", space.name), x + 65.0, 192.0, f)
+		}
+
+		// A mesh paints only inside its own outline, whatever shape it fills.
+		let quadPoints = [new Point(470.0, 220.0), new Point(650.0, 230.0), new Point(480.0, 380.0), new Point(640.0, 370.0)]
+		let quad = new MeshGradient(1, 1, quadPoints, [rgb(255, 0, 128), rgb(0, 200, 255), rgb(255, 220, 0), rgb(40, 40, 40)])
+		p.fill(new Circle(new Point(560.0, 300.0), 95.0), quad)
+		caption(p, "a circle over a smaller mesh", 560.0, 410.0, f)
+
+		let fadePoints = [new Point(700.0, 220.0), new Point(870.0, 220.0), new Point(700.0, 380.0), new Point(870.0, 380.0)]
+		let fade = new MeshGradient(1, 1, fadePoints, [rgb(255, 0, 0, 0), rgb(255, 0, 0), rgb(0, 0, 255), rgb(0, 0, 255, 0)])
+		p.fill(new Circle(new Point(785.0, 300.0), 78.0), fade)
+		caption(p, "translucent corners", 785.0, 410.0, f)
+	}
+}

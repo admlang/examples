@@ -1,0 +1,175 @@
+// Scenes about text: single lines, vertical text and paragraphs.
+internal partial module showcase.scenes {
+	use (
+		std.gfx.canvas::*
+		std.math.geom::(Line, Path, Point, StrokeStyle)
+		std.units::(Pixels)
+		showcase.kit::*
+	)
+
+	// Text: filled, stroked, painted and clipped runs, alignment, baselines,
+	// text on a path, hinting and measuring.
+	def text(p Painter, f Faces) {
+		let big = TextStyle{face: f.text, size: 64(px)}
+		let hairline = StrokeStyle{width: 1(px)}
+
+		p.fillText("Shaped text, AVA", new Point(40.0, 90.0), big, ink)
+		// The ink box `measureText` reports, around the line just drawn.
+		let inkBox = p.measureText("Shaped text, AVA", big).bounds
+		p.stroke(box(40.0 + inkBox.left, 90.0 + inkBox.top, 40.0 + inkBox.right, 90.0 + inkBox.bottom), green, StrokeStyle{width: 1(px), dash: [4(px), 3(px)]})
+
+		p.strokeText("Outlined", new Point(40.0, 170.0), big, red, StrokeStyle{width: 2(px)})
+		let sunset = linear(new Point(360.0, 0.0), new Point(640.0, 0.0), [rgb(255, 60, 20), rgb(170, 0, 255), rgb(0, 120, 255)])
+		p.fillText("Gradient", new Point(360.0, 170.0), big, sunset)
+
+		// The glyphs as a clip, stripes showing through.
+		p.save()
+		p.clip(p.textPath("Clip", new Point(680.0, 170.0), big))
+		for let i = 0; i < 30; i++ {
+			let x = 680.0 + float(i) * 8.0
+			p.fill(box(x, 100.0, x + 4.0, 190.0), blue)
+		}
+		p.restore()
+
+		// Alignment is about the anchor's x: the red line.
+		p.stroke(new Line(new Point(450.0, 205.0), new Point(450.0, 330.0)), marker, hairline)
+		for let (i, align) in [TextAlign.Start, TextAlign.Center, TextAlign.End] {
+			let aligned = TextStyle{face: f.text, size: 28(px), align: align}
+			p.fillText("align {align.name}", new Point(450.0, 235.0 + float(i) * 40.0), aligned, ink)
+		}
+
+		// The baseline is about the anchor's y: the red line.
+		p.stroke(new Line(new Point(30.0, 380.0), new Point(870.0, 380.0)), marker, hairline)
+		let baselines = [TextBaseline.Top, TextBaseline.Middle, TextBaseline.Alphabetic, TextBaseline.Bottom, TextBaseline.Hanging]
+		for let (i, baseline) in baselines {
+			let based = TextStyle{face: f.text, size: 30(px), baseline: baseline}
+			p.fillText(baseline.name, new Point(40.0 + float(i) * 170.0, 380.0), based, ink)
+		}
+
+		// Along a curve, each glyph turned to the curve's direction.
+		let wave = new Path().moveTo(40.0, 520.0).cubicTo(180.0, 420.0, 300.0, 620.0, 460.0, 500.0)
+		p.stroke(wave, grey, hairline)
+		p.fillText("text follows any path you give it", wave, TextStyle{face: f.text, size: 22(px)}, blue)
+
+		// Hinting at 11 pixels, drawn small and blown up 4x so the pixels show.
+		for let (i, hinted) in [false, true] {
+			let small = new Canvas(44, 14)
+			small.clear(paper)
+			small.fillText("Hinting", new Point(2.0, 11.0), TextStyle{face: f.text, size: 11(px), hinting: hinted}, ink)
+			let x = 520.0 + float(i) * 190.0
+			p.drawImage(small, box(x, 440.0, x + 176.0, 496.0), Sampling.Nearest)
+			caption(p, hinted ?? ("hinted (grid-fitted)", "unhinted"), x + 88.0, 516.0, f)
+		}
+		caption(p, "measureText ink box (green); kerning pulls the A and V together", 450.0, 620.0, f)
+	}
+
+	// Vertical text: Upright columns (CJK punctuation takes its vertical
+	// forms, Latin letters stack), baselines across the column, and Sideways
+	// runs.
+	def verticalText(p Painter, f Faces) {
+		let guide = rgb(230, 150, 140)
+		let hairline = StrokeStyle{width: 1(px)}
+
+		// An Upright column, in Japanese when there is a font for it.
+		let cjk = f.cjk
+		p.stroke(new Line(new Point(80.0, 20.0), new Point(80.0, 450.0)), guide, hairline)
+		if cjk is none {
+			let upright = TextStyle{face: f.text, size: 34(px), orientation: TextOrientation.Upright}
+			p.fillText("VERTICAL", new Point(80.0, 30.0), upright, ink)
+			caption(p, "Upright (no CJK font installed)", 140.0, 480.0, f)
+		} else {
+			let upright = TextStyle{face: cjk, size: 34(px), orientation: TextOrientation.Upright}
+			p.fillText("縦書き、「日本語」。", new Point(80.0, 30.0), upright, ink)
+			caption(p, "Upright, vertical forms", 140.0, 480.0, f)
+		}
+
+		// In an Upright column the baseline moves the glyphs across it: the
+		// anchor line (red) is on their right, centre or left.
+		for let (i, baseline) in [TextBaseline.Top, TextBaseline.Middle, TextBaseline.Bottom] {
+			let x = 260.0 + float(i) * 80.0
+			p.stroke(new Line(new Point(x, 20.0), new Point(x, 450.0)), guide, hairline)
+			let upright = TextStyle{face: f.text, size: 40(px), orientation: TextOrientation.Upright, baseline: baseline}
+			p.fillText("ADM", new Point(x, 40.0), upright, blue)
+			caption(p, baseline.name, x, 480.0, f)
+		}
+
+		// Sideways: a horizontal run turned clockwise, as on a book's spine.
+		p.fill(box(560.0, 20.0, 620.0, 450.0), green)
+		let spine = TextStyle{
+			face:        f.text,
+			size:        30(px),
+			orientation: TextOrientation.Sideways,
+			align:       TextAlign.Center,
+			baseline:    TextBaseline.Middle,
+		}
+		p.fillText("The Canvas Showcase", new Point(590.0, 235.0), spine, white)
+		caption(p, "Sideways", 590.0, 480.0, f)
+
+		// A chart's axis, its label written sideways beside it.
+		let axis = StrokeStyle{width: 2(px)}
+		p.stroke(new Line(new Point(720.0, 30.0), new Point(720.0, 440.0)), ink, axis)
+		for let k = 0; k <= 8; k++ {
+			let y = 440.0 - float(k) * 50.0
+			p.stroke(new Line(new Point(714.0, y), new Point(720.0, y)), ink, axis)
+			p.fillText("{k * 10}", new Point(708.0, y + 5.0), TextStyle{face: f.text, size: 13(px), align: TextAlign.End}, ink)
+		}
+		let axisLabel = TextStyle{face: f.text, size: 16(px), orientation: TextOrientation.Sideways, align: TextAlign.Center}
+		p.fillText("requests per second", new Point(670.0, 235.0), axisLabel, ink)
+		let area = [new Point(720.0, 440.0), new Point(760.0, 300.0), new Point(800.0, 340.0), new Point(840.0, 120.0), new Point(870.0, 160.0), new Point(870.0, 440.0)]
+		p.fill(new Path().polygon(area), rgb(52, 101, 200, 90))
+		caption(p, "Sideways axis label", 780.0, 480.0, f)
+	}
+
+	// Paragraphs: spans of different sizes and colours wrapped within a
+	// width, three alignments, words split when wider than a line, line
+	// height, and the lines a paragraph reports.
+	def paragraphs(p Painter, f Faces) {
+		let body = TextStyle{face: f.text, size: 17(px)}
+		let guide = rgb(230, 150, 140)
+		let hairline = StrokeStyle{width: 1(px)}
+		let top = 290.0
+
+		let spans = [
+			TextSpan{text: "Paragraphs ", textStyle: TextStyle{face: f.text, size: 28(px)}, paint: red},
+			TextSpan{text: "wrap where Unicode allows a break, keep each line on one baseline across sizes, and honour newlines.\nA new line after a newline, with an ", textStyle: body, paint: ink},
+			TextSpan{text: "accent", textStyle: body, paint: blue},
+			TextSpan{text: " in the middle.", textStyle: body, paint: ink},
+		]
+		for let (i, align) in [TextAlign.Start, TextAlign.Center, TextAlign.End] {
+			let x = 30.0 + float(i) * 290.0
+			let para = new Paragraph(spans, 260.0, align = align)
+			let size = para.size()
+			p.stroke(box(x, 30.0, x + size.width, 30.0 + size.height), guide, hairline)
+			p.fillText(para, new Point(x, 30.0))
+			caption(p, align.name, x + 130.0, 30.0 + size.height + 24.0, f)
+		}
+
+		// A word wider than the line splits; ­ marks where a word may
+		// break with a hyphen.
+		let narrow = new Paragraph([TextSpan{text:"Supercalifragilisticexpialidocious splits between clusters; in­com­pre­hen­si­bil­i­ties breaks at its soft hyphens.", textStyle:body, paint:ink}], 150.0)
+		let narrowBottom = top + narrow.size().height
+		p.stroke(box(30.0, top, 180.0, narrowBottom), guide, hairline)
+		p.fillText(narrow, new Point(30.0, top))
+		caption(p, "narrow: split words, soft hyphens", 135.0, narrowBottom + 24.0, f)
+
+		let loose = new Paragraph([TextSpan{text:"Line height 1.8: the leading is split above and below each line, as CSS does. Blue lines mark the baselines.", textStyle:body, paint:ink}], 330.0, lineHeight = 1.8)
+		let looseBottom = top + loose.size().height
+		p.stroke(box(230.0, top, 560.0, looseBottom), guide, hairline)
+		p.fillText(loose, new Point(230.0, top))
+		for let (_, line) in loose.lines() {
+			let y = top + line.baseline
+			p.stroke(new Line(new Point(230.0, y), new Point(560.0, y)), rgb(52, 101, 200, 90), hairline)
+		}
+		caption(p, "lineHeight = 1.8", 395.0, looseBottom + 24.0, f)
+
+		// `lines()` gives each line's box, baseline and glyphs, which is what
+		// hit testing, carets and selections are built from.
+		let reported = new Paragraph([TextSpan{text:"Every line reports its glyphs, baseline, box and the characters it holds.", textStyle:body, paint:ink}], 260.0)
+		for let (i, line) in reported.lines() {
+			let shade = i % 2 == 0 ?? (rgb(52, 101, 200, 40), rgb(60, 160, 120, 40))
+			p.fill(box(610.0 + line.left, top + line.top, 610.0 + line.left + line.width, top + line.bottom), shade)
+		}
+		p.fillText(reported, new Point(610.0, top))
+		caption(p, "lines(): boxes per line", 740.0, top + reported.size().height + 24.0, f)
+	}
+}

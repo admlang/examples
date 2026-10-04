@@ -1,0 +1,39 @@
+// Plays a one-second tone (A4, 440 Hz) on every speaker of this computer,
+// one after another.
+//
+//   adm run devices/speakers/main.adm
+application Tone {
+	use (
+		std.devices
+		std.math
+	)
+
+	// The program's entry point. Fails when the speakers cannot be listed,
+	// or one cannot be opened or written to.
+	def new(args string[]) !int {
+		for let (_, found) in try devices.speakers() {
+			println("{found.id}  {found.name}")
+
+			let speaker = try devices.openSpeaker(found.id)
+			let rate = speaker.sampleRate()
+			println("playing on {speaker.device.name} at {rate} Hz")
+
+			// One second of sound is `rate` frames, and a frame holds one
+			// sample per channel. The wave is a sine at a fifth of full volume.
+			let tone float32[]
+			for let i = 0; i < rate; i++ {
+				let sample = float32(0.2 * math.sin(2.0 * math.Pi * 440.0 * float(i) / float(rate)))
+				for let channel = 0; channel < speaker.channels(); channel++ {
+					tone.push(sample)
+				}
+			}
+			try speaker.write(tone)
+			// `write` returns once the samples are queued; `drain` waits
+			// until they have played.
+			try speaker.drain()
+
+			speaker.close()
+		}
+		return 0
+	}
+}

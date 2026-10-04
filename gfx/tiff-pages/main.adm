@@ -1,0 +1,66 @@
+// Lists the pages of a TIFF file: a TIFF can hold many images, as a scanned
+// document does. Given a page number and an output file, it also saves
+// that page on its own.
+//
+//   adm run gfx/tiff-pages/main.adm -- scan.tif                 list the pages
+//   adm run gfx/tiff-pages/main.adm -- scan.tif 2 page2.png     also save page 2
+//
+// Pages count from 0. The output's format comes from its extension.
+application TiffPages {
+	use (
+		std.formats.image::(TIFF, TIFFPage, TIFFResolutionUnit)
+		std.os
+	)
+
+	// The program's entry point: `args[1]` is the TIFF file; `args[2]` and
+	// `args[3]`, optional, are a page number and the file to write. Fails
+	// when the file cannot be read or is not a TIFF, there is no such page,
+	// or the output cannot be written.
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: tiff-pages FILE.tif [PAGE OUTPUT]")
+			return 1
+		}
+
+		// `info` reads the headers of every page without decoding pixels.
+		let tiff = new TIFF()
+		_ = try tiff.info(try os.readFile(args[1]))
+
+		println("{tiff.pages.len()} page(s)")
+		for let (i, page) in tiff.pages {
+			println("  {i}: {describe(page)}")
+			// The text tags a page may carry.
+			println("     name: {page.pageName}") when page.pageName != ""
+			println("     description: {page.description}") when page.description != ""
+			println("     software: {page.software}") when page.software != ""
+			println("     date: {page.dateTime}") when page.dateTime != ""
+			println("     artist: {page.artist}") when page.artist != ""
+		}
+		return 0 when args.len() < 4
+
+		let index = args[2].toInt<int>()
+		let img = try tiff.page(index)
+		try img.save(args[3])
+		println("wrote page {index} to {args[3]}")
+		return 0
+	}
+
+	// One line for a page: its size, samples per pixel and bits per sample,
+	// colour model, compression, layout and resolution.
+	def describe(page TIFFPage) string {
+		let size = "{page.width}x{page.height}"
+		let samples = "{page.samplesPerPixel}x{page.bitsPerSample}-bit"
+		let alpha = page.alpha ?? (" +alpha", "")
+		// A page's pixels are stored as horizontal strips or as square tiles.
+		let layout = page.tiled ?? ("tiles", "strips")
+		let resolution = "{int(page.xResolution + 0.5)}x{int(page.yResolution + 0.5)} {unitName(page.resolutionUnit)}"
+		return "{size} {samples} {page.photometric.name}{alpha}, {page.compression.name}, {layout}, {resolution}"
+	}
+
+	// What a page's resolution counts pixels per.
+	def unitName(unit TIFFResolutionUnit) string {
+		return "dpi" when unit == TIFFResolutionUnit.Inch
+		return "dpcm" when unit == TIFFResolutionUnit.Centimeter
+		return "(no unit)"
+	}
+}

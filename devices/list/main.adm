@@ -1,0 +1,36 @@
+// Prints the devices this computer has, one to a line: the id to open it
+// by, what kind it is, its name, its USB identifiers, the bus it is on and
+// the node a program reads it from.
+//
+//   adm run devices/list/main.adm
+application DeviceList {
+	use std.services.devices::(Device, Devices)
+
+	// The program's entry point. Fails when the devices cannot be listed.
+	def new(args string[]) !int {
+		let found = try Devices.list()
+		println("no devices") when found.len() == 0
+
+		for let (_, device) in found {
+			// `padEnd` pads the text with spaces, so the columns line up.
+			let id = device.id.padEnd(20)
+			let kind = device.kind.name.padEnd(10)
+			let name = orDash(device.name).padEnd(28)
+			let bus = device.bus.padEnd(9)
+			println("{id} {kind} {name} {usbIds(device).padEnd(10)} {bus} {orDash(device.node)}")
+		}
+		return 0
+	}
+
+	// The vendor and product numbers as USB tools write them, `046d:1101`;
+	// "-" for a device that is not on USB.
+	def usbIds(device Device) string {
+		return "-" when device.vendorId == 0 && device.productId == 0
+		return "{device.vendorId.hex(4).lower()}:{device.productId.hex(4).lower()}"
+	}
+
+	// The text, or "-" when it is empty.
+	def orDash(text string) string {
+		return text == "" ?? ("-", text)
+	}
+}
