@@ -1,0 +1,2 @@
+# adm.lock — namespace:name:hash:version [source=... publisher=... permissions=a,b foreign=yes]; written by adm install / adm get
+admlang:adm.interop.lua:994c37ed2181969d0104a227ad09c8b4ef953e9518becc0e3567bb7b55c4b6c7:0.1.0 registry:public publisher=admpub_6o5bluqytd5ygnvhsjvppxaigoqqu6qh5ljixetzihnaide3u33a permissions= foreign=yes

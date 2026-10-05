@@ -1,0 +1,84 @@
+// Runs a shop's customer rules, written in Lua, from ADM: typed declarations
+// bound to a script file, a table returned as a struct, a function the script
+// calls back, and a second engine with limits for code the program does not
+// trust.
+//
+//   adm run interop/lua/main.adm
+module rules {
+	use adm.interop.lua::*
+
+	struct Customer {
+		name   string
+		years  int
+		orders int
+	}
+
+	struct Badge {
+		title string
+		perks string[]
+	}
+
+	// Each declaration is the function of the same name in the table
+	// rules.lua returns. The file is embedded in the program when it is
+	// built.
+	@lua("rules.lua")
+	def discount(customer Customer) float;
+
+	// The table the script returns fills the struct, field by field.
+	@lua("rules.lua")
+	def badge(customer Customer) Badge;
+
+	// Fails with a lua.ScriptError when the script raises an error.
+	@lua("rules.lua")
+	def shipping(country string, weight float) !float;
+
+	@lua("rules.lua")
+	def welcome(customer Customer) !int;
+}
+
+application Shop {
+	use (
+		adm.interop.lua
+		rules
+		rules::(Customer)
+	)
+
+	// The program's entry point. Fails when the engine cannot be used.
+	def new(args string[]) !int {
+		let ada = Customer{name: "Ada", years: 6, orders: 2}
+		let bob = Customer{name: "Bob", years: 1, orders: 14}
+
+		println("Typed declarations")
+		println("  discount  Ada {"%.2f".format(rules.discount(ada))}, Bob {"%.2f".format(rules.discount(bob))}")
+		let badge = rules.badge(ada)
+		println("  badge     {badge.title}: {badge.perks.join(", ")}")
+		println("  to RO     {"%.2f".format(try rules.shipping("RO", 3.0))}")
+		rules.shipping("MARS", 1.0) onerror (err error) {
+			println("  to MARS   {err.message}")
+			recover 0.0
+		}
+
+		// The declarations run in one engine, lua.runtime(). A function set
+		// in its table of globals is one the script can call.
+		println("A function for the script")
+		let engine = lua.runtime()
+		let audit = try engine.function(def (args lua.Value[]) !lua.Value {
+			println("  audit     {args[0]}")
+			return try engine.nil()
+		})
+		try (try engine.global()).set("audit", audit)
+		println("  letters   {try rules.welcome(bob)}")
+
+		// A separate engine with a time and a memory limit, for a script that
+		// arrives at run time.
+		println("A second engine with limits")
+		let sandbox = new lua.Runtime(memoryLimit = 8000000, timeout = 50ms)
+		let answer = try sandbox.eval("local t = \{\} for n = 1, 3 do t[n] = n * n end return table.concat(t, ' ')")
+		println("  eval      {answer}")
+		sandbox.eval("while true do end") onerror (err error) {
+			println("  runaway   {err.message}")
+			recover try sandbox.nil()
+		}
+		return 0
+	}
+}

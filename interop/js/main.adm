@@ -1,0 +1,84 @@
+// Runs a shop's pricing rules, written in JavaScript, from ADM: typed
+// declarations bound to a script file, a function the script calls back, and a
+// second engine with limits for code the program does not trust.
+//
+//   adm run interop/js/main.adm
+module shop {
+	use adm.interop.js::*
+
+	struct Item {
+		name     string
+		price    float
+		quantity int
+	}
+
+	// Each declaration is the export of the same name in pricing.js, which is
+	// embedded in the program when it is built.
+	@js("pricing.js")
+	def total(items Item[]) float;
+
+	// Fails with a js.ScriptError when the script throws.
+	@js("pricing.js")
+	def discount(amount float, code string) !float;
+
+	@js("pricing.js")
+	def labels(items Item[]) string[];
+
+	// The script rounds the caller's own array in place and returns how many
+	// prices it rounded.
+	@js("pricing.js")
+	def roundAll(prices float[]) int;
+
+	@js("pricing.js")
+	def checkout(items Item[], code ?string) !float;
+}
+
+application Shop {
+	use (
+		adm.interop.js
+		shop
+		shop::(Item)
+	)
+
+	// The program's entry point. Fails when the engine cannot be used.
+	def new(args string[]) !int {
+		let cart = [Item{name:"notebook", price:4.5, quantity:3}, Item{name:"pen", price:1.2, quantity:10}]
+
+		println("Typed declarations")
+		println("  total     {"%.2f".format(shop.total(cart))}")
+		println("  lines     {shop.labels(cart).join(", ")}")
+		println("  SPRING    {"%.2f".format(try shop.discount(shop.total(cart), "SPRING"))} off")
+		shop.discount(10.0, "FREE") onerror (err error) {
+			println("  FREE      {err.message}")
+			recover 0.0
+		}
+
+		let prices float[] = [4.499, 1.2049, 10.0]
+		let rounded = shop.roundAll(prices)
+		println("  rounded   {rounded} prices in place: {prices[0].str()}, {prices[1].str()}, {prices[2].str()}")
+
+		// The declarations run in one engine, js.runtime(). A function set on
+		// its global object is one the script can call.
+		println("A function for the script")
+		let engine = js.runtime()
+		let audit = try engine.function("audit", def (args js.Value[]) !js.Value {
+			println("  audit     {args[0]}")
+			return try engine.undefined()
+		})
+		try (try engine.global()).set("audit", audit)
+		println("  to pay    {"%.2f".format(try shop.checkout(cart, "STAFF"))}")
+		println("  no code   {"%.2f".format(try shop.checkout(cart, none))}")
+
+		// A separate engine with a time and a memory limit, for a script that
+		// arrives at run time.
+		println("A second engine with limits")
+		let sandbox = new js.Runtime(memoryLimit = 8000000, timeout = 50ms)
+		let answer = try sandbox.eval("[1, 2, 3].map((n) => n * n).join(' ')")
+		println("  eval      {answer}")
+		sandbox.eval("for (;;) ;") onerror (err error) {
+			println("  runaway   {err.message}")
+			recover try sandbox.undefined()
+		}
+		return 0
+	}
+}

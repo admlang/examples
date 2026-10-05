@@ -1,0 +1,5 @@
+schema = 1
+
+# The JavaScript engine: `@js` and `js.Runtime` come from this library.
+[deps]
+"adm.interop.js" = "^0.1"

@@ -54,6 +54,5 @@ playing https://live.kissfm.ro/kissfm.aacp
 Everything is in [player.adm](player.adm):
 
 - `MediaPlayer` from `std.media.player` holds the playlist and plays it on its own task. Sound goes to the default speaker.
-- Sound passes through the player's `effects` on its way out: here an equalizer with the Rock preset, then a limiter that keeps the result from clipping.
 - The program opens a window and draws one frame per turn of its loop: `player.picture()` gives the video frame due now, or nothing for an audio file, in which case it shows the image the visualizer draws into.
 - Key presses from the window call `pause`, `play`, `next`, `previous` and `skip` on the player.

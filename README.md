@@ -51,6 +51,14 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | [tiff-pages](gfx/tiff-pages) | Lists the pages of a TIFF file and saves one of them. |
 | [webp-info](gfx/webp-info) | Prints what a WebP file holds (encoding, transparency, animation frames, metadata) and converts it. |
 
+### Interop
+
+| Example | Description |
+|---------|-------------|
+| [c](interop/c) | Calls functions from a C file and from the C math library, and lets C call an ADM function back. |
+| [js](interop/js) | Runs a shop's pricing rules written in JavaScript, calling the script's functions like ordinary ADM functions. |
+| [lua](interop/lua) | Works out customer discounts and badges with rules written in Lua, called like ordinary ADM functions. |
+
 ### Media
 
 | Example | Description |

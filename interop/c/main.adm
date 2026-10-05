@@ -1,0 +1,55 @@
+// Calls C from ADM: functions of a C file compiled with the program, one from
+// the C math library, an array C writes into, and an ADM function C calls
+// back.
+//
+//   adm run interop/c/main.adm
+
+// The declarations of stats.c, which sits beside this file and is compiled
+// and linked with the program. `@link("m")` adds the C math library, which
+// stats.c and `cbrt` below need.
+@link("m")
+module measure {
+	// A function without a body is implemented in C. Its types are the C
+	// prototype's: int is int64_t, float is double, an array of numbers is a
+	// pointer to its elements, a string is a const char*.
+	@c(symbol = "stats_mean")
+	def mean(xs float[], n int) float;
+
+	@c(symbol = "stats_deviation")
+	def deviation(xs float[], n int) float;
+
+	@c(symbol = "stats_scale")
+	def scale(xs float[], n int, factor float);
+
+	// `keep` is a C function pointer: C calls the ADM function it is given.
+	@c(symbol = "stats_count_if")
+	def countIf(xs float[], n int, keep def(float) bool) int;
+
+	@c(symbol = "stats_version")
+	def version() string;
+
+	// The C library's own cbrt, under its own name.
+	def cbrt(x float) float;
+}
+
+application Interop {
+	use measure
+
+	// The program's entry point.
+	def new(args string[]) int {
+		let samples float[] = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+
+		println(measure.version())
+		println("mean       {measure.mean(samples, samples.len())}")
+		println("deviation  {measure.deviation(samples, samples.len())}")
+		println("cbrt(27)   {measure.cbrt(27.0)}")
+
+		let limit = 4.5
+		let above = measure.countIf(samples, samples.len(), (x) => x > limit)
+		println("above {limit}  {above}")
+
+		measure.scale(samples, samples.len(), 0.5)
+		println("halved     {samples.str()}")
+		return 0
+	}
+}
