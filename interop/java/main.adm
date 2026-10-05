@@ -1,0 +1,92 @@
+// Calls Java from ADM: a shop keeps its pricing rules in a Java class, and
+// the program calls its static methods like its own functions. It also
+// makes a Java object and hands Java one of its own functions.
+//
+//   adm get                                 (once: fetches the library adm.toml names)
+//   javac interop/java/Pricing.java
+//   adm run interop/java/main.adm
+
+// The declarations of Pricing.java. A function without a body under `@java`
+// is the static method of the same name: int32 is int, float is double, a
+// string is a String, an array of numbers or strings is the Java array.
+module pricing {
+	use adm.interop.java::*
+
+	@java("Pricing")
+	def total(prices float[], quantities int32[], customer string) !float;
+
+	@java("Pricing")
+	def discount(customer string) !float;
+
+	@java("Pricing")
+	def labels(prices float[], currency string) !string[];
+
+	// Java returns null for an unknown code, which arrives as none.
+	@java("Pricing")
+	def coupon(code string) !?string;
+
+	// Java throws for an order below the minimum, which arrives as an error.
+	// `check` is a keyword in ADM, so the declaration has another name.
+	@java("Pricing", method = "check")
+	def checkOrder(total float) !none;
+}
+
+application Interop {
+	use (
+		adm.interop.java
+		pricing
+	)
+
+	// The program's entry point.
+	def new(args string[]) int {
+		run() onerror (err error) {
+			println("failed: {err.message}")
+			recover none
+		}
+		return 0
+	}
+
+	def run() !none {
+		// The folder the Java class was compiled into.
+		try java.runtime().start(classPath = ["interop/java"])
+
+		let prices float[] = [19.90, 5.00, 120.00]
+		let quantities int32[] = [2, 1, 1]
+		let customer = "ana@partner.example"
+
+		println("labels    {(try pricing.labels(prices, "EUR")).join(", ")}")
+		println("discount  {try pricing.discount(customer)}")
+		println("total     {try pricing.total(prices, quantities, customer)}")
+
+		let known = try pricing.coupon("WELCOME")
+		println("coupon    {known}") unless known is none
+		let unknown = try pricing.coupon("SUMMER")
+		println("coupon    none for SUMMER") when unknown is none
+
+		pricing.checkOrder(4.5) onerror (err error) {
+			println("refused   {err.message}")
+			if err is java.ScriptError {
+				let thrown = err.value
+				if !(thrown is none) {
+					let reason = thrown.invoke("getMessage") onerror recover thrown
+					println("          Java says: {reason}")
+				}
+			}
+			recover none
+		}
+
+		// A Java object, made and called from here: a list, sorted by an
+		// ADM function that Java calls as its Comparator.
+		let vm = java.runtime()
+		let names = try (try vm.load("java.util.ArrayList")).construct()
+		for let (_, name) in ["pear", "fig", "banana"] {
+			try names.invoke("add", name)
+		}
+		let byLength = try vm.function(def (args java.Value[]) !java.Value {
+			return try vm.value((try args[0].asString()).len() - (try args[1].asString()).len())
+		})
+		try names.invoke("sort", byLength)
+		println("sorted    {names}")
+		return none
+	}
+}

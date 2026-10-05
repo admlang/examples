@@ -1,0 +1,5 @@
+schema = 1
+
+# The Java bridge: `@java` and `java.runtime()` come from this library.
+[deps]
+"adm.interop.java" = "^0.1"

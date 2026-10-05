@@ -56,8 +56,13 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | Example | Description |
 |---------|-------------|
 | [c](interop/c) | Calls functions from a C file and from the C math library, and lets C call an ADM function back. |
+| [dotnet](interop/dotnet) | Calls the static methods of a C# class (arrays and strings both ways, null as none, an exception as an error), makes a .NET list and has .NET sort it with an ADM function. |
+| [go](interop/go) | Calls a Go package the build compiles itself (`@go`): text statistics, and a sum its goroutines compute over an ADM array. |
+| [java](interop/java) | Calls the static methods of a Java class (arrays and strings both ways, null as none, an exception as an error), makes a Java list and has Java sort it with an ADM function. |
 | [js](interop/js) | Runs a shop's pricing rules written in JavaScript, calling the script's functions like ordinary ADM functions. |
 | [lua](interop/lua) | Works out customer discounts and badges with rules written in Lua, called like ordinary ADM functions. |
+| [rust](interop/rust) | Calls a Rust crate the build compiles itself (`@rust`), lets Rust write into a buffer and call an ADM function back. |
+| [zig](interop/zig) | Calls a Zig file the build compiles itself (`@zig`): a hash, primes written into an ADM array, and a callback for each step of a sequence. |
 
 ### Media
 

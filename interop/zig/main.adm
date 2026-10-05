@@ -1,0 +1,48 @@
+// Calls Zig from ADM: functions of a Zig file, an array Zig writes into,
+// and an ADM function Zig calls back.
+//
+//   cd interop/zig
+//   adm run
+
+// The declarations of numbers.zig. `@zig` builds the file, named relative
+// to this one, and links it into the program. `prefix` is what its exported
+// names start with: `hash` is the Zig function `numbers_hash`.
+@zig("numbers.zig", prefix = "numbers_")
+module numbers {
+	// A function without a body is implemented in Zig. Its types are those
+	// of the `export fn`: uint is u64 or usize, uint32 is u32, a string is a
+	// [*:0]const u8, an array of numbers is a pointer to its elements.
+	def version() string;
+
+	def hash(data byte[], n uint) uint;
+
+	// Zig fills `out` and returns how many values it wrote.
+	def primes(out uint32[], capacity uint) uint;
+
+	// `visit` is a function pointer: Zig calls the ADM function it is given.
+	def collatz(start uint, visit def(uint)) int;
+}
+
+application Interop {
+	use numbers
+
+	// The program's entry point.
+	def new(args string[]) int {
+		println(numbers.version())
+
+		let data = "hello, zig".bytes()
+		println("hash     {numbers.hash(data, uint(data.len())).hex()}")
+
+		let first uint32[]
+		first.len(10)
+		let n = numbers.primes(first, uint(first.len()))
+		println("primes   {first[:int(n)].str()}")
+
+		let highest uint = 0
+		let steps = numbers.collatz(27, (value) => {
+			highest = value when value > highest
+		})
+		println("collatz  27 reaches 1 in {steps} steps, as high as {highest}")
+		return 0
+	}
+}

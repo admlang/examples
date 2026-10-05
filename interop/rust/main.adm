@@ -1,0 +1,55 @@
+// Calls Rust from ADM: functions of a Rust crate, a buffer Rust writes
+// into, an array it reads, and an ADM function Rust calls back.
+//
+//   cd interop/rust
+//   adm run
+
+// The declarations of src/lib.rs. `@rust` builds the crate in this folder
+// (the one with Cargo.toml) with cargo and links it into the program.
+// `prefix` is what its exported names start with: `words` is the Rust
+// function `text_words`.
+@rust(".", prefix = "text_")
+module textstats {
+	// A function without a body is implemented in Rust. Its types are those
+	// of the `extern "C"` function: int is i64, float is f64, a string is a
+	// *const c_char, an array of numbers is a pointer to its elements.
+	def version() string;
+
+	def words(text string) int;
+
+	// Rust writes the longest word into `out` and returns its length.
+	def longest(text string, out byte[], capacity int) int;
+
+	// `keep` is a function pointer: Rust calls the ADM function it is given.
+	// `symbol` names the Rust function when the prefix and the
+	// declaration's name do not give it.
+	@rust(symbol = "text_count_if")
+	def countIf(text string, keep def(string) bool) int;
+
+	@rust(symbol = "stats_median")
+	def median(xs float[], n int) float;
+}
+
+application Interop {
+	use textstats
+
+	// The program's entry point.
+	def new(args string[]) int {
+		let text = "the quick brown fox jumps over the extraordinarily lazy dog"
+
+		println(textstats.version())
+		println("words    {textstats.words(text)}")
+
+		let buffer byte[]
+		buffer.len(64)
+		let n = textstats.longest(text, buffer, buffer.len())
+		println("longest  {string(buffer[:n])}")
+
+		let short = textstats.countIf(text, (word) => word.len() <= 3)
+		println("short    {short}")
+
+		let samples float[] = [7.0, 2.0, 9.0, 4.0, 5.0]
+		println("median   {textstats.median(samples, samples.len())}")
+		return 0
+	}
+}

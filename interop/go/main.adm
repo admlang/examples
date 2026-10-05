@@ -1,0 +1,45 @@
+// Calls Go from ADM: functions of a Go package, a buffer Go writes into,
+// and an array its goroutines read.
+//
+//   cd interop/go
+//   adm run
+
+// The declarations of wordfreq.go. `@go` builds the package in this folder
+// with go and links it into the program, the Go runtime with it. `prefix`
+// is what its exported names start with: `distinct` is the Go function
+// `wordfreq_distinct`.
+@go(".", prefix = "wordfreq_")
+module wordfreq {
+	// A function without a body is implemented in Go. Its types are those of
+	// the exported function: int is C.longlong, float is C.double, a string
+	// is a *C.char, an array of numbers is a pointer to its elements.
+	def distinct(text string) int;
+
+	// Go writes the most frequent word into `out` and returns its length.
+	def top(text string, out byte[], capacity int) int;
+
+	// `symbol` names the Go function when the prefix and the declaration's
+	// name do not give it.
+	@go(symbol = "wordfreq_sum_squares")
+	def sumSquares(xs float[], n int) float;
+}
+
+application Interop {
+	use wordfreq
+
+	// The program's entry point.
+	def new(args string[]) int {
+		let text = "It was the best of times, it was the worst of times, it was the age of wisdom."
+
+		println("distinct     {wordfreq.distinct(text)}")
+
+		let buffer byte[]
+		buffer.len(64)
+		let n = wordfreq.top(text, buffer, buffer.len())
+		println("most common  {string(buffer[:n])}")
+
+		let samples float[] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+		println("sum squares  {wordfreq.sumSquares(samples, samples.len())}")
+		return 0
+	}
+}
