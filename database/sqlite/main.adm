@@ -1,0 +1,135 @@
+// Keeps a small library of books in SQLite: statements with bound arguments,
+// rows read into structs, a transaction, a failure told apart by its kind,
+// and the same queries written as `sql def` methods.
+//
+//   adm run database/sqlite/main.adm
+module books {
+	use (
+		std.data.db
+		std.time
+	)
+
+	struct Book {
+		id int
+		title string
+		author string
+		// The column is called `published`; the field says what it holds.
+		@db.column("published")
+		year int
+		rating ?float
+		// Kept as text in the row, a time in the program.
+		@db.column(stored = db.Stored.Text)
+		added time.Time
+	}
+
+	// Shelf is the library's statements as methods. Each runs on the
+	// connection the marked property holds; `{name}` is a bound argument,
+	// never pasted into the text.
+	type Shelf {
+		@db.connection()
+		conn db.Queryable
+
+		def new(conn db.Queryable) {
+			self.conn = conn
+		}
+
+		sql def find(id int) !?Book {
+			SELECT * FROM books WHERE id = {id}
+		}
+
+		sql def by(author string) !Book[] {
+			SELECT * FROM books
+			WHERE author = {author}
+			ORDER BY published
+		}
+
+		sql def rate(id int, rating float) !db.Result {
+			UPDATE books SET rating = {rating} WHERE id = {id}
+		}
+
+		sql def count() !int {
+			SELECT count(*) FROM books
+		}
+
+		sql def best() !(string, float) {
+			SELECT title, rating FROM books WHERE rating IS NOT NULL ORDER BY rating DESC LIMIT 1
+		}
+
+		sql def authors() !string[] {
+			SELECT DISTINCT author FROM books ORDER BY author
+		}
+	}
+}
+
+application Bookshelf {
+	use (
+		std.data.db
+		std.time
+		adm.database.sqlite
+		books::(Book, Shelf)
+	)
+
+	// The program's entry point. Fails when the database does.
+	def new(args string[]) !int {
+		// Importing the driver is what makes the `sqlite:` scheme known.
+		// `sqlite:books.db` would keep the library in a file.
+		let conn = try db.connect("sqlite::memory:?foreign_keys=on")
+		println("SQLite {sqlite.version()}, drivers: {db.drivers().join(", ")}")
+
+		try conn.exec("CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, author TEXT NOT NULL, published INTEGER NOT NULL, rating REAL, added TEXT NOT NULL)")
+
+		// Arguments are bound to the placeholders in order.
+		println("Statements with arguments")
+		let now = time.now()
+		let res = try conn.exec("INSERT INTO books (title, author, published, added) VALUES (?, ?, ?, ?)", "Dune", "Frank Herbert", 1965, now)
+		println("  inserted  {res.affected} row, id {res.lastInsertId}")
+
+		// A struct's fields become named arguments, each in its column's form.
+		let book = Book{id: 2, title: "Solaris", author: "Stanisław Lem", year: 1961, rating: 4.5, added: now}
+		try conn.exec("INSERT INTO books (id, title, author, published, rating, added) VALUES (:id, :title, :author, :published, :rating, :added)", db.values(book))
+
+		// A transaction: both rows or neither.
+		let tx = try conn.beginTx()
+		try tx.exec("INSERT INTO books (title, author, published, added) VALUES (?, ?, ?, ?)", "The Cyberiad", "Stanisław Lem", 1965, now)
+		try tx.exec("INSERT INTO books (title, author, published, added) VALUES (?, ?, ?, ?)", "Children of Dune", "Frank Herbert", 1976, now)
+		try tx.commitTx()
+
+		// Rows are read one at a time with typed readers, by column index.
+		println("Reading rows")
+		let rows = try conn.query("SELECT title, published, rating FROM books WHERE published < ? ORDER BY published", 1970)
+		for try rows.next() {
+			let rating = rows.isNull(2) ?? ("not rated", "%.1f".format(try rows.float(2)))
+			println("  {try rows.int(1)}  {try rows.string(0)} ({rating})")
+		}
+
+		// Or into structs, by column name.
+		let all = try db.readAll<Book>(try conn.query("SELECT * FROM books ORDER BY id"))
+		println("  {all.len()} books, the first added {all[0].added.str()}")
+
+		// A failure says what kind it is, and keeps the database's own code.
+		println("A failure")
+		conn.exec("INSERT INTO books (title, author, published, added) VALUES (?, ?, ?, ?)", "Dune", "Someone Else", 2000, now) onerror (err error) {
+			if err is db.DbError {
+				println("  {err.kind.name}: {err.message} (SQLite code {err.native})")
+			}
+			recover db.Result{affected: 0, lastInsertId: 0}
+		}
+
+		// The same database through `sql def` methods.
+		println("Statements as methods")
+		let shelf = new Shelf(conn)
+		try shelf.rate(1, 4.8)
+		println("  books     {try shelf.count()}")
+		println("  authors   {(try shelf.authors()).join(", ")}")
+		let (title, rating) = try shelf.best()
+		println("  best      {title} ({"%.1f".format(rating)})")
+		for let (_, b) in try shelf.by("Stanisław Lem") {
+			println("  by Lem    {b.year} {b.title}")
+		}
+		let missing = try shelf.find(99)
+		println("  book 99   {missing is none ?? ("not on the shelf", "found")}")
+
+		try conn.close()
+		return 0
+	}
+}

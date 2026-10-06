@@ -15,6 +15,13 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | [chat](ai/chat) | Chats with a GGUF language model in the terminal, with optional reasoning output and tool calls. |
 | [classifier](ai/classifier) | CClassifies a support ticket with a decision model (Bespoke Nimble, or any chat model): typed questions answered with probabilities and other no text generated.|
 
+### Database
+
+| Example | Description |
+|---------|-------------|
+| [service](database/service) | Keeps orders and an audit trail in two databases held by the `Database` service, written to from three tasks through `sql def` functions. |
+| [sqlite](database/sqlite) | Keeps a library of books in SQLite: bound arguments, rows read into structs, a transaction, and the statements again as `sql def` methods. |
+
 ### Devices
 
 | Example | Description |

@@ -1,0 +1,2 @@
+# adm.lock — namespace:name:hash:version [source=... publisher=... permissions=a,b foreign=yes]; written by adm install / adm get
+admlang:adm.database.sqlite:b6a8504533a68156089ed1f541ae26be617fc70c59e93040d9cccda5acd7de62:0.1.0 source=registry:public publisher=admpub_6o5bluqytd5ygnvhsjvppxaigoqqu6qh5ljixetzihnaide3u33a permissions= foreign=yes

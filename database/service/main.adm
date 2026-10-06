@@ -1,0 +1,103 @@
+// A shop that keeps orders in one database and an audit trail in another,
+// both held by the Database service: connections by name, each a pool shared
+// between tasks, and `sql def` functions that run on them without being
+// handed a connection.
+//
+//   adm run database/service/main.adm
+module shop {
+	use (
+		std.data.db
+		std.services.database::(Database, db)
+	)
+
+	struct Order {
+		id       int
+		customer string
+		total    float
+	}
+
+	// A `sql def` outside a type runs on the service's default connection.
+	sql def place(customer string, total float) !db.Result {
+		INSERT INTO orders (customer, total) VALUES ({customer}, {total})
+	}
+
+	sql def ordersOf(customer string) !Order[] {
+		SELECT * FROM orders WHERE customer = {customer} ORDER BY id
+	}
+
+	sql def revenue() !float {
+		SELECT coalesce(sum(total), 0.0) FROM orders
+	}
+
+	// `@db` names another of the service's connections.
+	@db("audit")
+	sql def record(event string) !none {
+		INSERT INTO events (event) VALUES ({event})
+	}
+
+	@db("audit")
+	sql def events() !string[] {
+		SELECT event FROM events ORDER BY id
+	}
+
+	// Places an order and notes it in the audit trail.
+	def checkout(customer string, total float) !int {
+		let res = try place(customer, total)
+		try record("order {res.lastInsertId} for {customer}")
+		return res.lastInsertId
+	}
+}
+
+application Shop {
+	use (
+		std.services.database::(Database)
+		adm.database.sqlite
+		shop
+	)
+
+	// The program's entry point. Fails when a database does.
+	def new(args string[]) !int {
+		// The service keeps a pool per name. These two are databases in
+		// memory, which belong to one connection each, hence the limit of 1;
+		// with a file or a server (`postgres://...`, `mysql://...`) a pool
+		// opens up to its limit and tasks run side by side.
+		try await Database.start()
+		try Database.add("", "sqlite::memory:", 1)
+		try Database.add("audit", "sqlite::memory:", 1)
+		for let (_, name) in Database.names() {
+			println("connection  {name == "" ?? ("(default)", name)}")
+		}
+
+		// The service runs statements on the default connection itself.
+		try Database.exec("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer TEXT NOT NULL, total REAL NOT NULL)")
+		// A named connection is a pool to use directly.
+		let audit = try Database.get("audit")
+		try audit.exec("CREATE TABLE events (id INTEGER PRIMARY KEY, event TEXT NOT NULL)")
+
+		// Three tasks share the two pools; each statement borrows a
+		// connection and gives it back.
+		println("Orders from three tasks")
+		let a = async shop.checkout("ana", 19.90)
+		let b = async shop.checkout("bob", 5.25)
+		let c = async shop.checkout("ana", 42.00)
+		let first = try await a
+		let second = try await b
+		let third = try await c
+		println("  placed    orders {first}, {second} and {third}")
+
+		println("What the databases hold")
+		for let (_, order) in try shop.ordersOf("ana") {
+			println("  ana       order {order.id}: {"%.2f".format(order.total)}")
+		}
+		println("  revenue   {"%.2f".format(try shop.revenue())}")
+		println("  audit     {(try shop.events()).len()} events")
+
+		// Stopping the service closes every pool.
+		try await Database.stop()
+		shop.revenue() onerror (err error) {
+			println("  stopped   {err.message}")
+			recover 0.0
+		}
+		return 0
+	}
+}
