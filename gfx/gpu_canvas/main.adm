@@ -8,7 +8,7 @@
 // each frame into GPU draw calls and shaders.
 module demo.gpu_canvas {
 	use (
-		std.gfx.canvas::(ColorStop, ConicGradient, DrawContext, DropShadow, ShaderPaint, linear, noise)
+		std.gfx.canvas::(ColorStop, ConicGradient, DropShadow, ShaderPaint, linear, noise)
 		std.gfx.color::(BlendMode, Color, RGBA)
 		std.math::(cos, sin)
 		std.math.geom::(Circle, Path, Point, Rect, Vec2, Vec4)
@@ -55,7 +55,8 @@ module demo.gpu_canvas {
 			}
 
 			// Draws one frame. The renderer calls it for every frame.
-			def render(ctx DrawContext) {
+			def render(frame ui.RenderContext) {
+				let ctx = frame.draw
 				let size = ctx.size()
 				let (w, h) = (size.width, size.height)
 				// Seconds since the start: everything that moves depends on it.
