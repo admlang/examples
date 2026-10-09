@@ -1,0 +1,821 @@
+// A window showing the std.ui components that work today, in the colours of
+// the desktop's theme: text, buttons and their states, pressable content,
+// checkboxes, switches, radios, a slider and progress bars, tabs, toggle
+// buttons, a dropdown, a grid, a dialog, text fields, a label, a search field,
+// a text area, menus and a menu bar, tooltips, a number field, a combo box, a
+// split button, a chip, an avatar, a hover card, a toast, an accordion, a
+// canvas, a split pane with tabbed pages, a popover,
+// rows, columns and panels, and the theme's palette. The window has an icon,
+// buttons switch between the light and the dark theme, and an icon in the
+// system tray shows, hides and quits the program.
+//
+//   adm run ui/components-showcase/showcase.adm
+//
+// Switch the desktop between light and dark, or change its accent colour,
+// while the window is open: the palette and the components follow.
+module showcase.components {
+	use (
+		std.gfx.canvas
+		std.formats.image
+		std.gfx.color::(Color, RGBA)
+		std.math::(Tau, cos, sin)
+		std.math.geom::(Axes, Circle, Corners, Edges, Point, Rect)
+		std.ui::(CloseRequest, ColorScheme, MenuEntry, RenderContext, TextKind, Theme, UI, WindowState)
+		std.ui.components::*
+		std.ui.styles::*
+		std.units::(Extent, Pixels)
+	)
+
+	// A box of its own size and padding that arranges what is inside it.
+	style Area {
+		Box
+		Layout
+	}
+
+	// What the showcase's controls show and change. `@bindable`: a control given one of
+	// these fields writes what the user sets straight into it, with no handler.
+	@bindable
+	type Counter {
+		presses int
+		opened  int
+		// Whether the popover is shown.
+		more    bool
+		// What the checkbox, the switch, the radios and the slider hold.
+		agreed  bool
+		wrap    bool   = true
+		size    string = "medium"
+		volume  float  = 40.0
+		// The current tab, the toggle buttons, the dropdown's choice, and whether the
+		// dialog is shown.
+		tab     int
+		bold    bool   = true
+		italic  bool
+		font    int    = 1
+		asking  bool
+		// The step of the breadcrumbs picked last, and how often the link was followed.
+		step    int    = -1
+		follows int
+		// What the search field holds and what was last searched for, whether the menu
+		// is shown, what was picked from a menu last, and the page the tabs show.
+		query   string
+		sought  string
+		menu    bool
+		picked  string = "nothing"
+		page    int
+		// Which theme the buttons asked for, whether the tray icon is there, and whether
+		// closing the window sends it to the tray.
+		look    string = "the desktop's"
+		// The number field's number, the combo box's text, what the split button ran
+		// last, how often the chip's cross was pressed, and whether the toast shows.
+		count   float  = 3.0
+		city    string
+		ran     string = "nothing"
+		removed int
+		saved   bool
+		tray    bool
+		toTray  bool   = true
+	}
+
+	let counter = new Counter()
+
+	def pressed() {
+		counter.presses++
+	}
+
+	def reset() {
+		counter.presses = 0
+	}
+
+	def opened() {
+		counter.opened++
+	}
+
+	def toggleMore() {
+		counter.more = !counter.more
+	}
+
+	def pickSmall(on bool) {
+		counter.size = "small"
+	}
+
+	def pickMedium(on bool) {
+		counter.size = "medium"
+	}
+
+	def pickLarge(on bool) {
+		counter.size = "large"
+	}
+
+	def ask() {
+		counter.asking = true
+	}
+
+	def answered() {
+		counter.asking = false
+	}
+
+	def stepTo(index int) {
+		counter.step = index
+	}
+
+	def follow() {
+		counter.follows++
+	}
+
+	// One colour of the palette: a filled square with a line around it.
+	component Swatch {
+		type {
+			// The palette's name for the colour.
+			@input
+			name string = ""
+
+			look Theme = UI.theme()
+
+			def new() {
+				style.width = 56(px)
+				style.height = 36(px)
+			}
+
+			// The colour as the theme has it now.
+			def shade() Color {
+				let p = look.palette
+				match name {
+					case "window":
+						return p.window
+					case "surface":
+						return p.surface
+					case "surfaceRaised":
+						return p.surfaceRaised
+					case "surfaceSunken":
+						return p.surfaceSunken
+					case "overlay":
+						return p.overlay
+					case "foreground":
+						return p.foreground
+					case "foregroundMuted":
+						return p.foregroundMuted
+					case "foregroundDisabled":
+						return p.foregroundDisabled
+					case "border":
+						return p.border
+					case "borderStrong":
+						return p.borderStrong
+					case "divider":
+						return p.divider
+					case "accent":
+						return p.accent
+					case "onAccent":
+						return p.onAccent
+					case "focus":
+						return p.focus
+					case "selection":
+						return p.selection
+					case "selectionInactive":
+						return p.selectionInactive
+					case "link":
+						return p.link
+					case "linkVisited":
+						return p.linkVisited
+					case "danger":
+						return p.danger
+					case "warning":
+						return p.warning
+					case "success":
+						return p.success
+					default:
+						return p.info
+				}
+			}
+
+			def render(ctx RenderContext) {
+				let frame = ctx.geometry.frame
+				let box = Rect{left: 0.0, top: 0.0, right: float(frame.width), bottom: float(frame.height)}
+				ctx.draw.fill(box, 4.0, shade())
+				let line = canvas.Border{width: 1(px), paint: look.palette.borderStrong}
+				ctx.draw.stroke(box, new Edges<canvas.Border>(line), new Corners<Pixels>(4(px)))
+			}
+		}
+
+		view {}
+
+		style Area
+	}
+
+	// Draws a count as a line of squares, in its own `render`: a component that draws
+	// itself reads what it shows on every frame.
+	component Tally {
+		type {
+			// Which count: "presses" or "opened".
+			@input
+			of string = "presses"
+
+			look Theme = UI.theme()
+
+			def new() {
+				style.width = fill
+				style.height = 12(px)
+			}
+
+			def render(ctx RenderContext) {
+				let count = of == "opened" ?? (counter.opened, counter.presses)
+				let width = float(ctx.geometry.frame.width)
+				for let i = 0; i < count && float(i) * 16.0 + 12.0 <= width; i++ {
+					let left = float(i) * 16.0
+					ctx.draw.fill(Rect{left: left, top: 0.0, right: left + 12.0, bottom: 12.0}, 3.0, look.palette.accent)
+				}
+			}
+		}
+
+		view {}
+
+		style Area
+	}
+
+	// A swatch over its name.
+	component Shade {
+		type {
+			@input
+			name string = ""
+
+			def new() {
+				style.width = 160(px)
+				style.gap = new Axes<Extent>(2(px))
+			}
+		}
+
+		view {
+			Swatch(name = name)
+			Text(text = name)
+		}
+
+		style Area
+	}
+
+	// A titled group of the showcase.
+	component Section {
+		type {
+			@input
+			title string = ""
+
+			def new() {
+				style.gap = new Axes<Extent>(8(px))
+				style.padding = new Edges<Extent>(0(px), 0(px), 12(px), 0(px))
+			}
+
+			// The title's one run, and the title it was made for.
+			bold    TextRun[]
+			boldFor string = ""
+
+			// The title in bold. The array is kept while the title stays the same: a view
+			// passes its arguments again on every frame, and a new array each time would
+			// set the text again each time.
+			def heading() TextRun[] {
+				return bold when boldFor == title && bold.len() > 0
+				boldFor = title
+				bold    = [TextRun{start: 0, end: title.len(), font: Font{family: "system-ui", weight: FontWeight.Bold}}]
+				return bold
+			}
+		}
+
+		view {
+			Text(text = title, runs = heading())
+		}
+
+		style Area
+	}
+
+	def search(text string) {
+		counter.sought = text
+	}
+
+	def toggleMenu() {
+		counter.menu = !counter.menu
+	}
+
+	def pickRename() {
+		counter.picked = "Rename"
+	}
+
+	def pickDuplicate() {
+		counter.picked = "Duplicate"
+	}
+
+	def pickDelete() {
+		counter.picked = "Delete"
+	}
+
+	// The showcase's icon, for its window and the tray: a blue tile with a white window
+	// in it, drawn here so the example needs no picture file.
+	def appIcon() image.Image {
+		let side = 64
+		let surface = new canvas.Canvas(side, side)
+		surface.fill(Rect{left: 2.0, top: 2.0, right: 62.0, bottom: 62.0}, 12.0, new Color(RGBA{r: 53, g: 132, b: 228, a: 255}))
+		surface.fill(Rect{left: 14.0, top: 16.0, right: 50.0, bottom: 48.0}, 4.0, new Color(RGBA{r: 255, g: 255, b: 255, a: 255}))
+		surface.fill(Rect{left: 14.0, top: 16.0, right: 50.0, bottom: 24.0}, 4.0, new Color(RGBA{r: 26, g: 95, b: 180, a: 255}))
+		let picture = new image.Image(side, side)
+		let data = picture.raw()
+		for let i = 0; i < data.len(); i++ {
+			data[i] = surface.pixels[i]
+		}
+		return picture
+	}
+
+	// Makes the theme every component reads the light or the dark one, whatever the
+	// desktop says; the accent and the fonts stay the desktop's.
+	def useScheme(scheme ColorScheme) {
+		let wanted = UI.appearance()
+		wanted.scheme = scheme
+		UI.theme().follow(wanted)
+		UI.redraw() onerror recover none
+	}
+
+	def useLight() {
+		counter.look = "light"
+		useScheme(ColorScheme.Light)
+	}
+
+	def useDark() {
+		counter.look = "dark"
+		useScheme(ColorScheme.Dark)
+	}
+
+	// Back to what the desktop asks for.
+	def useDesktop() {
+		counter.look = "the desktop's"
+		UI.theme().follow(UI.appearance())
+		UI.redraw() onerror recover none
+	}
+
+	// Shows or hides every window of the program. A window that is not visible stays
+	// open with its components as they are.
+	def showWindows(visible bool) {
+		for let window in UI.windows() {
+			window.visible = visible
+			window.state = WindowState.Normal when visible
+		}
+		UI.redraw() onerror recover none
+	}
+
+	def bringBack() {
+		showWindows(true)
+	}
+
+	// Hides the window; only with the tray icon there, which is the way back.
+	def sendToTray() {
+		showWindows(false) when counter.tray
+	}
+
+	def minimize() {
+		for let window in UI.windows() {
+			window.state = WindowState.Minimized
+		}
+	}
+
+	// Ends the program: closes its windows, so `UI.run` returns.
+	async def quit() {
+		let _ = await UI.stop()
+	}
+
+	// Puts the icon in the system tray with a menu to show and hide the window and to
+	// quit. A desktop without a tray leaves the showcase as it is without one.
+	def openTray() {
+		let leave = def () {
+			async quit()
+		}
+		let lines = [MenuEntry{label: "Show", onSelect: bringBack}, MenuEntry{label: "Hide", onSelect: sendToTray}, MenuEntry{separator: true}, MenuEntry{label: "Quit", onSelect: leave}]
+		counter.tray = true
+		UI.showTray(appIcon(), "ADM components", lines) onerror (err error) {
+			counter.tray = false
+			recover none
+		}
+	}
+
+	// Closing the window sends it to the tray instead, while the tray icon is there and
+	// the checkbox says so.
+	@on(UI.closeRequested)
+	def keepInTray(evt Event<CloseRequest>) {
+		return when !counter.tray || !counter.toTray
+		let request = evt.result
+		request.cancel()
+		request.window.visible = false
+	}
+
+	def runPlain() {
+		counter.ran = "Run"
+	}
+
+	def runDebug() {
+		counter.ran = "Debug"
+	}
+
+	def runProfile() {
+		counter.ran = "Profile"
+	}
+
+	def removeChip() {
+		counter.removed++
+	}
+
+	def showToast() {
+		counter.saved = true
+	}
+
+	// What the `Canvas` of the showcase draws: a dot going round, placed by the frame's
+	// time.
+	def drawOrbit(ctx RenderContext) {
+		let frame = ctx.geometry.frame
+		let (wide, high) = (float(frame.width), float(frame.height))
+		let palette = UI.theme().palette
+		ctx.draw.fill(Rect{left: 0.0, top: 0.0, right: wide, bottom: high}, 6.0, palette.surfaceSunken)
+		let turn = float(ctx.draw.frameTime.unixNs() / int64(1000000) % int64(3000)) / 3000.0 * Tau
+		let reach = wide.min(high) / 2.0 - 12.0
+		ctx.draw.fill(new Circle(new Point(wide / 2.0 + cos(turn) * reach, high / 2.0 + sin(turn) * reach), 6.0), palette.accent)
+	}
+
+	// A box of a fixed size for the canvas.
+	component Easel {
+		type {
+			def new() {
+				style.width = 160(px)
+				style.height = 100(px)
+			}
+		}
+
+		view {
+			children()
+		}
+
+		style Area
+	}
+
+	// A box of a fixed size for what fills the room it is given: the split pane.
+	component Stage {
+		type {
+			def new() {
+				style.width = 560(px)
+				style.height = 180(px)
+			}
+		}
+
+		view {
+			children()
+		}
+
+		style Area
+	}
+
+	// A row that wraps: the palette's swatches.
+	component Shelf {
+		type {
+			def new() {
+				style.arrange = Arrange.Row
+				style.wrap = true
+				style.gap = new Axes<Extent>(8(px))
+				style.width = fill
+			}
+		}
+
+		view {
+			children()
+		}
+
+		style Area
+	}
+
+	// The scrolling page: as wide as the view, its sections one under the other. A
+	// `Column` here would be as wide as its content, which gives the text nothing to
+	// wrap in and the tallies no width.
+	component Page {
+		type {
+			def new() {
+				style.width = fill
+				style.gap = new Axes<Extent>(8(px))
+			}
+		}
+
+		view {
+			children()
+		}
+
+		style Area
+	}
+
+	// The window's content.
+	component Showcase {
+		type {
+			def new() {
+				style.width = fill
+				style.height = fill
+				style.padding = new Edges<Extent>(20(px))
+			}
+
+			// The tray icon is made once the window is there, on the task that runs it.
+			def attached() {
+				openTray() unless counter.tray
+			}
+
+			// The ranges of `marked`, and the colour they were made for.
+			marks    TextRun[]
+			markedIn ?Color = none
+
+			// A sentence with coloured and bold ranges. The array is kept until the theme
+			// changes: a view passes its arguments again on every frame, and a new array
+			// each time would set the text again each time.
+			def marked() TextRun[] {
+				let palette = UI.theme().palette
+				let had = markedIn
+				return marks when !(had is none) && had == palette.danger
+				markedIn = palette.danger
+				marks    = [
+					TextRun{start: 0, end: 4, font: Font{family: "system-ui", weight: FontWeight.Bold}},
+					TextRun{start: 25, end: 31, foreground: palette.danger},
+					TextRun{start: 33, end: 40, foreground: palette.success},
+					TextRun{start: 45, end: 49, foreground: palette.link},
+				]
+				return marks
+			}
+		}
+
+		view {
+			ScrollView() {
+				Page() {
+					Section(title = "Window, theme and tray")
+					Row(gap = 8(px)) {
+						Button(label = "Light", onClick = useLight)
+						Button(label = "Dark", onClick = useDark)
+						Button(label = "Desktop's", onClick = useDesktop, tooltip = "Follows the desktop's light or dark setting again")
+						Text(text = "Theme: {counter.look}")
+					}
+					Row(gap = 8(px)) {
+						Button(label = "Minimize", onClick = minimize)
+						Button(label = "Hide to tray", onClick = sendToTray, enabled = counter.tray)
+						Checkbox(checked = counter.toTray, label = "Closing the window sends it to the tray", enabled = counter.tray)
+					}
+					Text(text = counter.tray ?? ("The tray icon's menu shows and hides the window and quits.", "This desktop has no system tray: the window closes as usual."))
+					Section(title = "Text")
+					Text(text = "Text is as large as its words and wraps in the width it is given: this line is long enough to show it when the window is narrow.")
+					Text(text = "Runs style ranges apart: danger, success and link colours.", runs = marked())
+					Section(title = "Buttons")
+					Row(gap = 8(px)) {
+						Button(label = "Press me", onClick = pressed)
+						Button(label = "Reset", onClick = reset)
+						Button(label = "Disabled", onClick = pressed, enabled = false)
+					}
+					Tally(of = "presses")
+					Text(text = "Pressed {counter.presses} times, one square each. Tab and Shift+Tab move the focus; Space or Enter presses the focused button.")
+					Section(title = "Pressables")
+					Pressable(onClick = opened) {
+						Panel() {
+							Text(text = "A panel inside a Pressable: click anywhere on it. Opened {counter.opened} times.")
+						}
+					}
+					Tally(of = "opened")
+					Section(title = "Choices")
+					Row(gap = 24(px)) {
+						Column(gap = 6(px)) {
+							Checkbox(checked = counter.agreed, label = "I agree")
+							Checkbox(checked = true, label = "Checked and disabled", enabled = false)
+							Switch(on = counter.wrap, label = "Wrap lines")
+						}
+						Column(gap = 6(px)) {
+							Radio(selected = counter.size == "small", label = "Small", onChange = pickSmall)
+							Radio(selected = counter.size == "medium", label = "Medium", onChange = pickMedium)
+							Radio(selected = counter.size == "large", label = "Large", onChange = pickLarge)
+						}
+					}
+					Text(text = "Agreed: {counter.agreed}. Wrap: {counter.wrap}. Size: {counter.size}. A click on the mark or its label, Space or Enter changes one.")
+					Divider()
+					Section(title = "Slider and progress")
+					Row(gap = 16(px)) {
+						Slider(value = counter.volume, step = 5.0)
+						ProgressBar(value = counter.volume / 100.0)
+						ProgressBar()
+					}
+					Text(text = "Volume {int(counter.volume)}. Drag the thumb or press on the track; the arrows move it by 5, Home and End to the ends. The first bar follows the slider, the second shows work of unknown length.")
+					Divider()
+					Section(title = "Tabs and toggles")
+					TabStrip(tabs = ["main.adm", "lib.adm", "notes.md"], current = counter.tab)
+					Row(gap = 8(px)) {
+						ToggleButton(on = counter.bold, label = "Bold")
+						ToggleButton(on = counter.italic, label = "Italic")
+						Badge(label = "{counter.presses}")
+						Spinner()
+					}
+					Text(text = "Tab {counter.tab + 1} of 3. Bold: {counter.bold}. Italic: {counter.italic}. The badge counts the presses of the first button. With the focus on the tabs, the arrows move between them.")
+					Divider()
+					Section(title = "Dropdown, grid and dialog")
+					Row(gap = 16(px)) {
+						Dropdown(options = ["Small", "Medium", "Large"], selected = counter.font)
+						Button(label = "Ask", onClick = ask)
+					}
+					Grid(columns = 3, gap = 6(px)) {
+						Button(label = "One")
+						Button(label = "Two")
+						Button(label = "Three")
+						Button(label = "Four")
+						Button(label = "Five")
+					}
+					Dialog(open = counter.asking, title = "A dialog") {
+						Text(text = "It sits in the middle of the window and takes every press until it is closed. Escape closes it too.")
+						footer = view {
+							Button(label = "Close", onClick = answered)
+						}
+					}
+					Divider()
+					Section(title = "An application's frame")
+					Toolbar() {
+						Button(label = "Run", onClick = pressed)
+						Button(label = "Stop", onClick = reset)
+						Spacer()
+						Link(label = "Open the docs", onClick = follow)
+					}
+					Heading(text = "A heading of level 2", level = 2)
+					Breadcrumbs(items = ["adm", "std", "ui", "components"], onSelect = stepTo)
+					StatusBar() {
+						Text(text = "Step picked: {counter.step}")
+						Spacer()
+						Text(text = "Link followed {counter.follows} times")
+					}
+					Divider()
+					Section(title = "Text fields")
+					Row(gap = 8(px)) {
+						TextField(placeholder = "Name", leading = "search")
+						TextField(placeholder = "Password", kind = TextKind.Password)
+					}
+					Text(text = "Click to put the caret, drag to select; arrows, Home and End move, with Shift they select, with Control by words; Control+A, C, X and V.")
+					Section(title = "Label, search field and text area")
+					Row(gap = 8(px)) {
+						Label(text = "Notes")
+						TextArea(value = "Enter starts a line.\nUp and Down move between lines,\nPage Up and Page Down by what shows,\nand the wheel scrolls.", rows = 3)
+						SearchField(value = counter.query, onSubmit = search)
+					}
+					Text(text = "A press on the label focuses the area. Looking for \"{counter.query}\"; last searched: \"{counter.sought}\". Escape or the cross at its end empties the field.")
+					Section(title = "Menus and tooltips")
+					Row(gap = 8(px)) {
+						Column() {
+							Button(label = "File", tooltip = "Opens a menu; the arrows move in it", onClick = toggleMenu)
+							Menu(open = counter.menu) {
+								MenuItem(label = "Rename", shortcut = "F2", onActivate = pickRename)
+								MenuItem(label = "Duplicate", icon = "plus", shortcut = "Ctrl+D", onActivate = pickDuplicate)
+								MenuItem(label = "Delete", icon = "close", shortcut = "Del", onActivate = pickDelete)
+							}
+						}
+						Panel() {
+							Text(text = "Press the secondary button here")
+							ContextMenu() {
+								MenuItem(label = "Rename", onActivate = pickRename)
+								MenuItem(label = "Delete", onActivate = pickDelete)
+							}
+						}
+						Text(text = "Picked last: {counter.picked}")
+					}
+					Section(title = "Menu bar")
+					MenuBar() {
+						Menu(title = "File") {
+							MenuItem(label = "Rename", shortcut = "F2", onActivate = pickRename)
+							MenuItem(label = "Duplicate", icon = "plus", shortcut = "Ctrl+D", onActivate = pickDuplicate)
+							MenuSeparator()
+							MenuItem(label = "Delete", icon = "close", shortcut = "Del", onActivate = pickDelete)
+							SubMenu("More") {
+								MenuItem(label = "Rename", onActivate = pickRename)
+								MenuItem(label = "Duplicate", onActivate = pickDuplicate)
+							}
+						}
+						Menu(title = "Edit") {
+							MenuItem(label = "Rename", onActivate = pickRename)
+						}
+					}
+					Section(title = "Number field, combo box and split button")
+					Row(gap = 12(px)) {
+						NumberField(value = counter.count, min = 0.0, max = 10.0)
+						ComboBox(value = counter.city, options = ["Amsterdam", "Athens", "Berlin", "Bern", "Oslo", "Paris", "Parma", "Prague"], placeholder = "City")
+						SplitButton(label = "Run", onClick = runPlain) {
+							MenuItem(label = "Debug", onActivate = runDebug)
+							MenuItem(label = "Profile", onActivate = runProfile)
+						}
+					}
+					Text(text = "Number {counter.count}; city \"{counter.city}\"; ran last: {counter.ran}. The arrows in the field, Up and Down step the number; Down in the city field goes into its list.")
+					Section(title = "Icons and pointer shapes")
+					Row(gap = 12(px)) {
+						Icon("search")
+						Icon("check")
+						Icon("close")
+						Icon("plus")
+						Icon("minus")
+						Icon("menu")
+						Icon("chevron-down")
+						Button(label = "Add", icon = "plus")
+						Link(label = "A link shows a hand")
+					}
+					Text(text = "Std's icons, by name; `UI.addIcons` adds an application's. The pointer is an I-beam over text fields, a hand over links and a resize shape over the split pane's divider.")
+					Section(title = "Chip, avatar, hover card and toast")
+					Row(gap = 12(px)) {
+						Chip(label = "rust", onRemove = removeChip)
+						Avatar(name = "Ada Lovelace")
+						Panel() {
+							Text(text = "Rest the pointer here")
+							HoverCard() {
+								Text(text = "A hover card holds components:")
+								Button(label = "Like this one")
+							}
+						}
+						Tooltip() {
+							tip = view {
+								Text(text = "Shows a toast")
+								Text(text = "A tooltip can hold components.")
+							}
+							Button(label = "Save", onClick = showToast)
+						}
+						Text(text = "Cross pressed {counter.removed} times")
+					}
+					Toast(text = "Saved. This notice goes by itself, or when pressed.", open = counter.saved)
+					Section(title = "Accordion and canvas")
+					Row(gap = 12(px)) {
+						Stage() {
+							Accordion() {
+								AccordionItem(title = "General", open = true) {
+									Text(text = "Opening a section closes the other.")
+								}
+								AccordionItem(title = "Advanced") {
+									Text(text = "Space or Enter on a title does the same.")
+								}
+							}
+						}
+						Easel() {
+							Canvas(draw = drawOrbit, animated = true)
+						}
+					}
+					Section(title = "Split pane and tabs")
+					Stage() {
+						SplitPane(sizes = [1.0, 2.0]) {
+							Text(text = "Drag the line between the panes.")
+							Tabs(current = counter.page) {
+								Tab(title = "main.adm") {
+									Text(text = "The first page.")
+								}
+								Tab(title = "notes") {
+									Text(text = "The second page, shown while its tab is current.")
+								}
+							}
+						}
+					}
+					Section(title = "Popover")
+					Column() {
+						Button(label = "More", onClick = toggleMore)
+						Popover(open = counter.more) {
+							Text(text = "A popover hangs beside its target, over the page.")
+							Text(text = "Escape or a press outside closes it.")
+						}
+					}
+					Section(title = "Rows and columns")
+					Row(gap = 16(px)) {
+						Column(gap = 4(px)) {
+							Text(text = "A column")
+							Button(label = "One 1")
+							Button(label = "Two")
+						}
+						Column(gap = 12(px)) {
+							Text(text = "A wider gap")
+							Button(label = "Three")
+							Button(label = "Four")
+						}
+					}
+					Section(title = "Palette")
+					Shelf() {
+						let list = [
+							"window", "surface", "surfaceRaised", "surfaceSunken", "overlay", "foreground",
+							"foregroundMuted", "foregroundDisabled", "border", "borderStrong", "divider", "accent",
+							"onAccent", "focus", "selection", "selectionInactive", "link", "linkVisited", "danger",
+							"warning", "success", "info"]
+						for let n in list {
+							Shade(name = n)
+						}
+					}
+				}
+			}
+		}
+
+		style Area
+	}
+}
+
+application ComponentsShowcase {
+	use (
+		std.ui::(UI, UIConfig)
+		std.ui.renderer
+		showcase.components::(Showcase, appIcon)
+	)
+
+	// The program's entry point: opens a window with the showcase's icon, puts
+	// the same icon in the system tray, and shows the components until the
+	// window is closed or Quit is chosen from the tray. Fails when the renderer or the window
+	// cannot be started.
+	async def new(args string[]) !int {
+		try UI.config(UIConfig{rendererName: "opengl", showFPS: true})
+		try await UI.start()
+		let window = new renderer.WindowConfig("ADM components", 900, 640)
+		window.icon = appIcon()
+		try await UI.run(Showcase(), window)
+		return 0
+	}
+}

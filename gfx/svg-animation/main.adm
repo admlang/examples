@@ -8,76 +8,116 @@
 //   adm run gfx/svg-animation/main.adm -- some.svg frames/ 3          writes 3 seconds
 //
 // Frames are written at 25 a second, as frames/frame-0000.png and on.
-application SvgAnimation {
+module svganimation.components {
 	use (
 		std.formats.image::(SVG)
 		std.gfx.color::(Color)
-		std.os
+		std.math.geom::Rect
 		std.time
-		std.ui.renderer::(PlatformEventKind, WindowConfig)
-		std.ui.renderer.opengl::(OpenGLRenderer)
+		std.ui::RenderContext
+		std.ui.styles::*
+	)
+
+	// The style of the `Animation`: its box.
+	style Fill {
+		Box
+	}
+
+	// The window's content: the document as it shows now, scaled to fit and centred.
+	component Animation {
+		type {
+			// The SVG document, and the size it asks to be drawn at.
+			@input
+			data byte[] = []
+
+			@input
+			width float = 1.0
+
+			@input
+			height float = 1.0
+
+			svg   SVG = new SVG()
+			// When the animation started.
+			start time.Time
+			// Whether a frame could not be drawn and that was said.
+			failed bool
+
+			def new() {
+				style.width = fill
+				style.height = fill
+				start = time.now()
+			}
+
+			def render(ctx RenderContext) {
+				let frame = ctx.geometry.frame
+				let (viewWidth, viewHeight) = (float(frame.width), float(frame.height))
+				ctx.draw.fill(Rect{left: 0.0, top: 0.0, right: viewWidth, bottom: viewHeight}, new Color("#FFFFFF"))
+				// Another frame follows this one: the animation goes on.
+				redraw()
+				// The document as it shows at this moment, as a recording of drawing
+				// commands rather than pixels, so it stays sharp at any window size.
+				let picture = svg.picture(data, time.now().since(start)) onerror (err error) {
+					// Said once: the window stays white.
+					println("cannot draw the document: {err.message}") unless failed
+					failed = true
+					return
+				}
+				let scale = (viewWidth / width).min(viewHeight / height)
+				ctx.draw.save()
+				ctx.draw.translate((viewWidth - width * scale) / 2.0, (viewHeight - height * scale) / 2.0)
+				ctx.draw.scale(scale, scale)
+				picture.replay(ctx.draw)
+				ctx.draw.restore()
+			}
+		}
+
+		view {}
+
+		style Fill
+	}
+}
+
+application SvgAnimation {
+	use (
+		std.formats.image::(SVG)
+		std.os
+		std.ui::(UI, UIConfig)
+		std.ui.renderer::(WindowConfig)
+		svganimation.components::Animation
 	)
 
 	// The program's entry point: `args[1]` is the SVG file, `args[2]` an
 	// output directory and `args[3]` a number of seconds, all optional.
 	// Fails when the file cannot be read or is not an SVG document, the
 	// window cannot be opened, or a frame cannot be written.
-	def new(args string[]) !int {
-		let path = args.len() > 1 ?? (args[1], "gfx/svg-animation/orbit.svg")
+	async def new(args string[]) !int {
+		let path = args.len() > 1 ?? (args[1], "./orbit.svg")
 		if args.len() > 2 {
 			let seconds = args.len() > 3 ?? (args[3].toInt<int>(), 10)
 			try writeFrames(path, args[2], seconds)
 		} else {
-			try play(path)
+			try await play(path)
 		}
 		return 0
 	}
 
 	// Shows the document at `path` in a window until the window is closed.
 	// Fails when the file cannot be read or is not an SVG document, or the
-	// window cannot be opened or drawn to.
-	def play(path string) !none {
+	// window cannot be opened.
+	async def play(path string) !none {
 		let data = try os.readFile(path)
 		let svg = new SVG()
 		// The size the document asks to be drawn at.
 		let info = try svg.info(data)
 		let (width, height) = (info.size.width, info.size.height)
+		// Read once here, so a document that cannot be drawn fails before a window opens.
+		let _ = try svg.picture(data)
 
-		let renderer = new OpenGLRenderer()
-		let window = try renderer.openWindow(new WindowConfig("{os.base(path)} — SVG animation", width, height))
-		let (viewWidth, viewHeight) = (width, height)
-		let start = time.now()
-
-		// One turn of this loop is one frame on screen.
-		for {
-			for let (_, event) in try renderer.pollEvents(window) {
-				if event.kind == PlatformEventKind.Close {
-					try renderer.closeWindow(window)
-					return none
-				}
-				if event.kind == PlatformEventKind.Resize {
-					viewWidth = event.size.width
-					viewHeight = event.size.height
-				}
-			}
-
-			// The document as it shows at this moment of the animation, as
-			// a recording of drawing commands rather than pixels, so it
-			// stays sharp at any window size.
-			let picture = try svg.picture(data, time.now().since(start))
-
-			let frame = try renderer.nextFrame(window)
-			let ctx = frame.ctx
-			ctx.clear(new Color("#FFFFFF"))
-			// Scale the document to fit the window, and centre it.
-			let scale = (viewWidth / width).min(viewHeight / height)
-			ctx.save()
-			ctx.translate((viewWidth - width * scale) / 2.0, (viewHeight - height * scale) / 2.0)
-			ctx.scale(scale, scale)
-			picture.replay(ctx)
-			ctx.restore()
-			try renderer.commit(window, frame)
-		}
+		try UI.config(UIConfig{rendererName: "opengl"})
+		try await UI.start()
+		// `run` draws the component in the window and returns when it is closed.
+		try await UI.run(Animation(data = data, width = width, height = height), new WindowConfig("{os.base(path)} — SVG animation", width, height))
+		return none
 	}
 
 	// Writes the first `seconds` of the animation into `dir` as numbered

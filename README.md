@@ -58,6 +58,12 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | [tiff-pages](gfx/tiff-pages) | Lists the pages of a TIFF file and saves one of them. |
 | [webp-info](gfx/webp-info) | Prints what a WebP file holds (encoding, transparency, animation frames, metadata) and converts it. |
 
+### User interface
+
+| Example | Description |
+|---------|-------------|
+| [components-showcase](ui/components-showcase) | A window showing the `std.ui` components in the desktop theme's colours: text, buttons and their states, pressable content, rows, columns, panels and the theme's palette. |
+
 ### Interop
 
 | Example | Description |

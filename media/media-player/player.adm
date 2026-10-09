@@ -12,27 +12,110 @@
 //   space          pause and resume
 //   n, p           next and previous file
 //   right, left    skip 10 seconds forward and back
-application mediaPlayer {
+module mediaplayer.components {
 	use (
 		std.formats.image::(Image)
 		std.gfx.color::(Color)
-		std.media.player::(LevelBarsVisualizer, MediaPlayer, PlayerState)
-		std.os
-		std.ui.renderer::(PlatformEventKind, WindowConfig)
-		std.ui.renderer.opengl::(OpenGLRenderer)
+		std.math.geom::Rect
+		std.media.player::(MediaPlayer, PlayerState)
+		std.ui::(Key, KeyEvent, RenderContext)
+		std.ui.styles::*
 	)
 
-	// The codes the window reports for the keys this program reads.
-	const keySpace = 32
-	const keyN = 78
-	const keyP = 80
-	const keyRight = 262
-	const keyLeft = 263
+	// The style of the `Screen`: its box.
+	style Fill {
+		Box
+	}
+
+	// The window's content: the video's picture, or the image the player draws into
+	// while an audio file plays. It takes the keys that steer the player.
+	component Screen {
+		type {
+			@input
+			player MediaPlayer = new MediaPlayer()
+
+			// What the player draws into while an audio file plays.
+			@input
+			screen Image = new Image(800, 600)
+
+			def new() {
+				style.width = fill
+				style.height = fill
+			}
+
+			// Does what a key asks of the player. A player that cannot start, change
+			// file or skip says why and goes on: a radio stream has no earlier or later
+			// to skip to.
+			def key(e KeyEvent) bool {
+				match e.key {
+					case Key.Space:
+						if player.state() == PlayerState.Playing {
+							player.pause()
+						} else {
+							player.play() onerror (err error) {
+								println("cannot play: {err.message}")
+								recover none
+							}
+						}
+					case Key.N:
+						player.next() onerror (err error) {
+							println("no next file: {err.message}")
+							recover none
+						}
+					case Key.P:
+						player.previous() onerror (err error) {
+							println("no previous file: {err.message}")
+							recover none
+						}
+					case Key.Right:
+						player.skip(10s) onerror recover none
+					case Key.Left:
+						player.skip(-10s) onerror recover none
+					default:
+						return false
+				}
+				return true
+			}
+
+			def render(ctx RenderContext) {
+				let frame = ctx.geometry.frame
+				let (width, height) = (int(float(frame.width)), int(float(frame.height)))
+				ctx.draw.fill(Rect{left: 0.0, top: 0.0, right: float(width), bottom: float(height)}, new Color("#000000"))
+				// Another frame follows this one: the picture and the bars keep moving.
+				redraw()
+
+				// `picture` is the video frame due now, or none for an audio file.
+				let picture = player.picture()
+				if picture is none {
+					// The visualizer's image, centred in the window.
+					ctx.draw.blit(screen, ((width - 800) / 2).max(0), ((height - 600) / 2).max(0))
+				} else {
+					// The video frame, scaled to fit the window.
+					ctx.draw.drawVideo(picture, 0, 0, width, height)
+				}
+			}
+		}
+
+		view {}
+
+		style Fill
+	}
+}
+
+application mediaPlayer {
+	use (
+		std.formats.image::(Image)
+		std.media.player::(LevelBarsVisualizer, MediaPlayer)
+		std.os
+		std.ui::(UI, UIConfig)
+		std.ui.renderer::(WindowConfig)
+		mediaplayer.components::Screen
+	)
 
 	// The program's entry point: every argument is a file, a folder or an
 	// internet address to play. Fails when a folder cannot be read, the
 	// window cannot be opened, or playback cannot start (no speaker).
-	def new(args string[]) !int {
+	async def new(args string[]) !int {
 		if args.len() < 2 {
 			println("usage: player FILE-OR-FOLDER-OR-ADDRESS...")
 			return 1
@@ -82,65 +165,12 @@ application mediaPlayer {
 		}
 		try player.play()
 
-		let renderer = new OpenGLRenderer()
-		let window = try renderer.openWindow(new WindowConfig("ADM media player", 800, 600))
-		let (width, height) = (800, 600)
-
-		// One turn of this loop is one frame on screen.
-		for {
-			for let (_, event) in try renderer.pollEvents(window) {
-				if event.kind == PlatformEventKind.Close {
-					player.stop()
-					try renderer.closeWindow(window)
-					return 0
-				}
-				if event.kind == PlatformEventKind.Resize {
-					width = int(event.size.width)
-					height = int(event.size.height)
-				}
-				if event.kind == PlatformEventKind.KeyDown {
-					try pressed(player, event.key)
-				}
-			}
-
-			let frame = try renderer.nextFrame(window)
-			let ctx = frame.ctx
-			ctx.clear(new Color("#000000"))
-
-			// `picture` is the video frame due now, or none for an audio file.
-			let picture = player.picture()
-			if picture is none {
-				// The visualizer's image, centred in the window.
-				ctx.blit(screen, ((width - 800) / 2).max(0), ((height - 600) / 2).max(0))
-			} else {
-				// The video frame, scaled to fit the window.
-				ctx.drawVideo(picture, 0, 0, width, height)
-			}
-			try renderer.commit(window, frame)
-		}
-	}
-
-	// Does what a key asks of the player. Fails when the player cannot
-	// start, change file or skip.
-	def pressed(player MediaPlayer, key int) !none {
-		switch key {
-			case keySpace:
-				if player.state() == PlayerState.Playing {
-					player.pause()
-				} else {
-					try player.play()
-				}
-			case keyN:
-				try player.next()
-			case keyP:
-				try player.previous()
-			// A radio stream has no earlier or later to skip to: the player
-			// refuses, and the key does nothing.
-			case keyRight:
-				player.skip(10s) onerror recover none
-			case keyLeft:
-				player.skip(-10s) onerror recover none
-		}
-		return none
+		try UI.config(UIConfig{rendererName: "opengl"})
+		try await UI.start()
+		// `run` draws the component in the window, hands it the keys, and returns when
+		// the window is closed.
+		try await UI.run(Screen(player = player, screen = screen), new WindowConfig("ADM media player", 800, 600))
+		player.stop()
+		return 0
 	}
 }
