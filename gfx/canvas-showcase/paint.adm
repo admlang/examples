@@ -77,7 +77,7 @@ internal partial module showcase.scenes {
 		let frame = new Canvas(30, 30)
 		frame.fill(rounded(box(0.0, 0.0, 30.0, 30.0), 10(px)), green)
 		frame.fill(rounded(box(4.0, 4.0, 26.0, 26.0), 7(px)), rgb(236, 250, 242))
-		let insets = new Edges<Pixels>(10(px))
+		let insets = new Edges(10(px))
 		p.drawImage(frame, box(560.0, 370.0, 860.0, 440.0), insets)
 		p.drawImage(frame, box(560.0, 455.0, 700.0, 520.0), insets)
 		p.drawImage(frame, box(720.0, 455.0, 860.0, 520.0), insets)

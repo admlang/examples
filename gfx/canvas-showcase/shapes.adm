@@ -68,12 +68,12 @@ internal partial module showcase.scenes {
 			let x = 40.0 + float(i % 4) * 210.0
 			let y = 30.0 + float(i / 4) * 130.0
 			let border = Border{width: 8(px), paint: blue, lineStyle: lineStyle}
-			p.stroke(box(x, y, x + 190.0, y + 90.0), new Edges<Border>(border))
+			p.stroke(box(x, y, x + 190.0, y + 90.0), new Edges(border))
 			caption(p, lineStyle.name, x + 95.0, y + 112.0, f)
 		}
 
 		// A width and colour per side; the corners split on the diagonal.
-		let sides = new Edges<Border>(
+		let sides = new Edges(
 			Border{width: 4(px), paint: red},
 			Border{width: 12(px), paint: green},
 			Border{width: 20(px), paint: blue},
@@ -81,23 +81,23 @@ internal partial module showcase.scenes {
 		)
 		p.stroke(box(40.0, 300.0, 230.0, 420.0), sides)
 		caption(p, "a width and paint per side", 135.0, 442.0, f)
-		p.stroke(box(250.0, 300.0, 440.0, 420.0), sides, new Corners<Pixels>(36(px)))
+		p.stroke(box(250.0, 300.0, 440.0, 420.0), sides, new Corners(36(px)))
 		caption(p, "rounded", 345.0, 442.0, f)
 
 		let dashed = Border{width: 3(px), paint: ink, lineStyle: LineStyle.Dashed}
-		p.stroke(box(460.0, 300.0, 650.0, 420.0), new Edges<Border>(dashed), new Corners<Pixels>(24(px)))
+		p.stroke(box(460.0, 300.0, 650.0, 420.0), new Edges(dashed), new Corners(24(px)))
 		let dotted = Border{width: 6(px), paint: rgb(130, 60, 170), lineStyle: LineStyle.Dotted}
-		p.stroke(box(670.0, 300.0, 860.0, 420.0), new Edges<Border>(dotted), new Corners<Pixels>(50(px), 12(px)))
+		p.stroke(box(670.0, 300.0, 860.0, 420.0), new Edges(dotted), new Corners(50(px), 12(px)))
 		caption(p, "dashes and dots around rounded corners", 660.0, 442.0, f)
 
 		let sunset = linear(new Point(40.0, 0.0), new Point(440.0, 0.0), [rgb(255, 90, 20), rgb(90, 20, 255)])
 		let ridge = Border{width: 10(px), paint: sunset, lineStyle: LineStyle.Ridge}
-		p.stroke(box(40.0, 470.0, 440.0, 530.0), new Edges<Border>(ridge), new Corners<Pixels>(14(px)))
+		p.stroke(box(40.0, 470.0, 440.0, 530.0), new Edges(ridge), new Corners(14(px)))
 		caption(p, "any paint: a gradient ridge", 240.0, 552.0, f)
 
 		let rule = Border{width: 2(px), paint: ink}
 		let nothing = Border{width: 0(px), paint: ink, lineStyle: LineStyle.None}
-		p.stroke(box(460.0, 470.0, 860.0, 530.0), new Edges<Border>(rule, nothing))
+		p.stroke(box(460.0, 470.0, 860.0, 530.0), new Edges(rule, nothing))
 		caption(p, "top and bottom only (left and right None)", 660.0, 552.0, f)
 	}
 

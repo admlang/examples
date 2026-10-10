@@ -192,7 +192,7 @@ module showcase.components {
 				let box = Rect{left: 0.0, top: 0.0, right: float(frame.width), bottom: float(frame.height)}
 				ctx.draw.fill(box, 4.0, shade())
 				let line = canvas.Border{width: 1(px), paint: look.palette.borderStrong}
-				ctx.draw.stroke(box, new Edges<canvas.Border>(line), new Corners<Pixels>(4(px)))
+				ctx.draw.stroke(box, new Edges(line), new Corners(4(px)))
 			}
 		}
 
@@ -239,7 +239,7 @@ module showcase.components {
 
 			def new() {
 				style.width = 160(px)
-				style.gap = new Axes<Extent>(2(px))
+				style.gap = new Axes(2(px))
 			}
 		}
 
@@ -258,8 +258,8 @@ module showcase.components {
 			title string = ""
 
 			def new() {
-				style.gap = new Axes<Extent>(8(px))
-				style.padding = new Edges<Extent>(0(px), 0(px), 12(px), 0(px))
+				style.gap = new Axes(8(px))
+				style.padding = new Edges(0(px), 0(px), 12(px), 0(px))
 			}
 
 			// The title's one run, and the title it was made for.
@@ -470,7 +470,7 @@ module showcase.components {
 			def new() {
 				style.arrange = Arrange.Row
 				style.wrap = true
-				style.gap = new Axes<Extent>(8(px))
+				style.gap = new Axes(8(px))
 				style.width = fill
 			}
 		}
@@ -489,7 +489,7 @@ module showcase.components {
 		type {
 			def new() {
 				style.width = fill
-				style.gap = new Axes<Extent>(8(px))
+				style.gap = new Axes(8(px))
 			}
 		}
 
@@ -506,7 +506,7 @@ module showcase.components {
 			def new() {
 				style.width = fill
 				style.height = fill
-				style.padding = new Edges<Extent>(20(px))
+				style.padding = new Edges(20(px))
 			}
 
 			// The tray icon is made once the window is there, on the task that runs it.
