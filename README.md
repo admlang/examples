@@ -63,6 +63,7 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | Example | Description |
 |---------|-------------|
 | [components-showcase](ui/components-showcase) | A window showing the `std.ui` components in the desktop theme's colours: text, buttons and their states, pressable content, rows, columns, panels and the theme's palette. |
+| [custom-chrome](ui/custom-chrome) | Two windows whose frames the program draws itself (`WindowConfig.chrome`): a rounded one with coloured dots for buttons, and a disc with none that is found by name and closed from the first. |
 
 ### Interop
 
