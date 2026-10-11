@@ -1,0 +1,255 @@
+// Two windows whose frames the program draws itself.
+//
+// A window's frame is its chrome: `WindowConfig.chrome`. Left as none, the desktop draws
+// it. Set to a component, the window opens without the desktop's frame and that
+// component is all there is of one: it draws what it wants, in any shape, and places the
+// window's root where its view calls `children()`.
+//
+// The first window has a rounded frame with three coloured dots that close, minimize
+// and maximize it. The second is a disc with no buttons at all: it is moved by any point
+// of it, and closed from the first window.
+//
+//   adm run ui/custom-chrome/chrome.adm
+module chrome.example {
+	use (
+		std.gfx.color::(Color, RGBA)
+		std.math.geom::(Axes, Circle, Corners, Edges, Point, Rect)
+		std.ui::(PointerEvent, PointerPhase, RenderContext, UI, WindowState)
+		std.ui.components::*
+		std.ui.renderer
+		std.ui.styles::*
+		std.units::(Extent, Pixels)
+	)
+
+	// A box that arranges what is inside it.
+	style Area {
+		Box
+		Layout
+	}
+
+	// A round button of one colour: a dot of a chrome's header.
+	component Dot {
+		type {
+			@input(value = true)
+			shade Color = new Color(RGBA{r: 128, g: 128, b: 128, a: 255})
+
+			@input
+			onPress ?(def()) = none
+
+			def new() {
+				style.width = 14(px)
+				style.height = 14(px)
+				// It stands in the part of the chrome that moves the window. A press on
+				// something that can take the focus is that component's; a press on
+				// anything else there (the title, empty room) moves the window. Tab does
+				// not stop on it.
+				focusable = true
+				tabStop   = false
+			}
+
+			def pointer(e PointerEvent) bool {
+				return false when e.phase != PointerPhase.Down
+				let run = onPress
+				run() unless run is none
+				return true
+			}
+
+			def render(ctx RenderContext) {
+				let frame = ctx.geometry.frame
+				let (wide, high) = (float(frame.width), float(frame.height))
+				// Lighter under the pointer.
+				let ink = hover ?? (shade.mix(new Color(RGBA{r: 255, g: 255, b: 255, a: 255}), 0.3), shade)
+				ctx.draw.fill(new Circle(new Point(wide / 2.0, high / 2.0), wide.min(high) / 2.0), ink)
+			}
+		}
+
+		view {}
+
+		style Area
+	}
+
+	// A chrome: a rounded frame whose header has three dots and a title. Any component
+	// can be one. What makes it a chrome is how it is used (`WindowConfig.chrome`) and
+	// that its view calls `children()`, where the window's root goes.
+	component CardChrome {
+		type {
+			@input
+			title string = ""
+
+			// The window this chrome is the frame of: every component finds the window
+			// it is in so.
+			def shut() {
+				let own = context<renderer.Window>()
+				// Asks as the desktop's close button does: a handler of
+				// `UI.closeRequested` could still keep the window open.
+				own.close() unless own is none
+			}
+
+			def shrink() {
+				let own = context<renderer.Window>()
+				return when own is none
+				own.state = WindowState.Minimized
+			}
+
+			def grow() {
+				let own = context<renderer.Window>()
+				return when own is none
+				own.state = own.state == WindowState.Maximized ?? (WindowState.Normal, WindowState.Maximized)
+			}
+
+			def render(ctx RenderContext) {
+				ctx.background()
+				ctx.borders()
+				ctx.childNodes()
+			}
+		}
+
+		view {
+			// `WindowDrag` is what the window is moved by: a press on it, or on a text in
+			// it, drags the window. The dots are `focusable`, so they take their own presses.
+			WindowDrag(gap = 8(px)) {
+				Dot(new Color(RGBA{r: 237, g: 106, b: 94, a: 255}), onPress = shut)
+				Dot(new Color(RGBA{r: 245, g: 191, b: 79, a: 255}), onPress = shrink)
+				Dot(new Color(RGBA{r: 98, g: 197, b: 84, a: 255}), onPress = grow)
+				Text(text = title)
+			}
+			Divider()
+			// The window's root.
+			children()
+		}
+
+		style {
+			Area
+			Background
+			Borders
+			width   = fill
+			height  = fill
+			gap     = new Axes<Extent>(10(px))
+			padding = new Edges<Extent>(14(px))
+			// The window is opened `transparent`, so the desktop shows around the corners.
+			radius     = new Corners<Extent>(16(px))
+			background = new BackgroundFill(theme.palette.surface)
+			border     = new Edges<Border>(Border{width: 1(px), paint: theme.palette.border})
+		}
+	}
+
+	// Another chrome: a disc with nothing on it but the window's root. The whole of it
+	// moves the window, since all it holds is in a `WindowDrag`.
+	component RoundChrome {
+		type {
+			def render(ctx RenderContext) {
+				let frame = ctx.geometry.frame
+				let (wide, high) = (float(frame.width), float(frame.height))
+				let palette = UI.theme().palette
+				let reach = wide.min(high) / 2.0
+				ctx.draw.fill(new Circle(new Point(wide / 2.0, high / 2.0), reach), palette.accent)
+				ctx.draw.fill(new Circle(new Point(wide / 2.0, high / 2.0), reach - 6.0), palette.surface)
+				ctx.childNodes()
+			}
+		}
+
+		view {
+			WindowDrag() {
+				children()
+			}
+		}
+
+		style {
+			Area
+			width  = fill
+			height = fill
+			align  = Align{horizontal: Alignment.Center, vertical: Alignment.Center}
+		}
+	}
+
+	// What the round window shows.
+	component RoundPage {
+		view {
+			Text(text = "Drag me")
+		}
+
+		style {
+			Area
+			width = fill
+			align = Align{horizontal: Alignment.Center, vertical: Alignment.Center}
+		}
+	}
+
+	// Opens the round window: no frame from the desktop, see-through outside its disc,
+	// and presses outside the disc go to what is behind it.
+	//
+	// Fails when the window cannot be opened.
+	def openRoundWindow() !none {
+		let config = new renderer.WindowConfig("Round", 180, 180)
+		// A name of our own, to find the window again.
+		config.name = "round"
+		config.resizable = false
+		config.transparent = true
+		config.clickThrough = renderer.ClickThrough.Empty
+		config.alwaysOnTop = true
+		config.chrome = RoundChrome()
+		let _ = try UI.openWindow(RoundPage(), config)
+		return none
+	}
+
+	// Opens the round window unless it is open already.
+	def openRound() {
+		return unless UI.window(name = "round") is none
+		openRoundWindow() onerror recover none
+	}
+
+	// Closes the round window, which has no button of its own to close it.
+	def closeRound() {
+		let round = UI.window(name = "round")
+		round.close() unless round is none
+	}
+
+	// The root of the first window: what its chrome places under the header.
+	component Page {
+		type {
+			// What the window this page is in is doing.
+			def state() string {
+				let own = context<renderer.Window>()
+				return "not in a window" when own is none
+				return "{own.state}"
+			}
+		}
+
+		view {
+			Text(text = "This window's frame is a component, CardChrome, given as WindowConfig.chrome. The red dot closes the window, the yellow one minimizes it, the green one maximizes it or brings it back. Drag the header to move it.")
+			Text(text = "This window is {state()}.")
+			Row(gap = 8(px)) {
+				Button(label = "Open the round window", onClick = openRound)
+				Button(label = "Close it", onClick = closeRound)
+			}
+			Text(text = "The round window has no buttons: it is found by its name and closed from here.")
+		}
+
+		style {
+			Area
+			width = fill
+			gap   = new Axes<Extent>(10(px))
+		}
+	}
+}
+
+application CustomChrome {
+	use (
+		chrome.example::(CardChrome, Page)
+		std.ui::(UI, UIConfig)
+		std.ui.renderer
+	)
+
+	// Opens the first window with its own chrome and serves the windows until they are
+	// closed. Fails when the renderer or the window cannot be started.
+	async def new(args string[]) !int {
+		try UI.config(UIConfig{rendererName: "opengl"})
+		try await UI.start()
+		let config = new renderer.WindowConfig("Custom chrome", 460, 340)
+		// See-through where the chrome draws nothing: around its rounded corners.
+		config.transparent = true
+		config.chrome = CardChrome(title = "Custom chrome")
+		try await UI.run(Page(), config)
+		return 0
+	}
+}

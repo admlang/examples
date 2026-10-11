@@ -22,6 +22,12 @@ adm run ui/components-showcase/showcase.adm
 | Chip, avatar, hover card and toast | `Chip` with a cross, `Avatar` with initials, a `HoverCard` the pointer can go into, a `Tooltip` with content on the Save button, a `Toast` in the window's corner |
 | Accordion and canvas | `Accordion` with two `AccordionItem`s; a `Canvas` drawn by a function on every frame |
 | Split pane and tabs | `SplitPane` with a divider to drag; `Tabs` showing one `Tab` at a time under its strip |
+| List | `List` over ten thousand rows, mounting those that show; selection with the pointer, Shift, the command key and the keys |
+| Tree | `Tree` over nested places: arrows, Right and Left, the bound `expanded` and `selected` |
+| Data grid | `DataGrid` with three `GridColumn`s: sorting by a header, dragging a column's width or double-clicking its end to fit the content (kept between runs with `persist`), text shortened with an ellipsis in a narrow column |
+| Notices | a `ToastHost` around the page; buttons that ask `context<Toasts>()` to `show` notices of each kind, one with an Undo button, and five at once to see the count of those that wait |
+| Window chrome | a second window opened with `WindowConfig.chrome = WindowChrome(...)`: its frame, header and buttons are drawn by the component; `context<Window>()` and `UI.window(name = ...)` |
+| Drawer and sheet | `Drawer` from the start edge and from the bottom (`side = Side.Below`) |
 | Popover | `Popover` under a button: it opens over the page, and Escape or a press outside closes it |
 | Rows and columns | `Row` and `Column` with their `gap` |
 | Scrolling | the whole page is in a `ScrollView`: turn the wheel, drag the bar's thumb, click beside it for a page, or focus a button and use Page Up, Page Down, Home, End and the arrows  |

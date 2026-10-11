@@ -4,7 +4,9 @@
 // buttons, a dropdown, a grid, a dialog, text fields, a label, a search field,
 // a text area, menus and a menu bar, tooltips, a number field, a combo box, a
 // split button, a chip, an avatar, a hover card, a toast, an accordion, a
-// canvas, a split pane with tabbed pages, a popover,
+// canvas, a split pane with tabbed pages, a popover, a list of ten thousand
+// rows, a tree, a data grid, notices asked for in code, drawers, a second
+// window with a frame of its own,
 // rows, columns and panels, and the theme's palette. The window has an icon,
 // buttons switch between the light and the dark theme, and an icon in the
 // system tray shows, hides and quits the program.
@@ -22,6 +24,7 @@ module showcase.components {
 		std.math.geom::(Axes, Circle, Corners, Edges, Point, Rect)
 		std.ui::(CloseRequest, ColorScheme, MenuEntry, RenderContext, TextKind, Theme, UI, WindowState)
 		std.ui.components::*
+		std.ui.renderer
 		std.ui.styles::*
 		std.units::(Extent, Pixels)
 	)
@@ -36,44 +39,55 @@ module showcase.components {
 	// these fields writes what the user sets straight into it, with no handler.
 	@bindable
 	type Counter {
-		presses int
-		opened  int
+		presses  int
+		opened   int
 		// Whether the popover is shown.
-		more    bool
+		more     bool
 		// What the checkbox, the switch, the radios and the slider hold.
-		agreed  bool
-		wrap    bool   = true
-		size    string = "medium"
-		volume  float  = 40.0
+		agreed   bool
+		wrap     bool     = true
+		size     string   = "medium"
+		volume   float    = 40.0
 		// The current tab, the toggle buttons, the dropdown's choice, and whether the
 		// dialog is shown.
-		tab     int
-		bold    bool   = true
-		italic  bool
-		font    int    = 1
-		asking  bool
+		tab      int
+		bold     bool     = true
+		italic   bool
+		font     int      = 1
+		asking   bool
 		// The step of the breadcrumbs picked last, and how often the link was followed.
-		step    int    = -1
-		follows int
+		step     int      = -1
+		follows  int
 		// What the search field holds and what was last searched for, whether the menu
 		// is shown, what was picked from a menu last, and the page the tabs show.
-		query   string
-		sought  string
-		menu    bool
-		picked  string = "nothing"
-		page    int
+		query    string
+		sought   string
+		menu     bool
+		picked   string   = "nothing"
+		page     int
 		// Which theme the buttons asked for, whether the tray icon is there, and whether
 		// closing the window sends it to the tray.
-		look    string = "the desktop's"
+		look     string   = "the desktop's"
 		// The number field's number, the combo box's text, what the split button ran
 		// last, how often the chip's cross was pressed, and whether the toast shows.
-		count   float  = 3.0
-		city    string
-		ran     string = "nothing"
-		removed int
-		saved   bool
-		tray    bool
-		toTray  bool   = true
+		count    float    = 3.0
+		city     string
+		ran      string   = "nothing"
+		removed  int
+		saved    bool
+		tray     bool
+		toTray   bool     = true
+		// The rows selected in the list, the nodes open and selected in the tree, the
+		// rows selected in the grid and how it is sorted, and whether the drawer and
+		// the sheet show.
+		rows     string[] = []
+		open     string[] = ["Europe"]
+		places   string[] = []
+		cities   string[] = []
+		sortBy   string
+		sortDown bool
+		drawer   bool
+		sheet    bool
 	}
 
 	let counter = new Counter()
@@ -420,6 +434,189 @@ module showcase.components {
 		counter.saved = true
 	}
 
+	// Ten thousand rows for the list: it mounts only those that show.
+	def numbered(count int) string[] {
+		let all string[]
+		for let i = 1; i <= count; i++ {
+			all.push("Row {i}")
+		}
+		return all
+	}
+
+	let manyRows = numbered(10000)
+
+	// A node of the tree: a place and the places in it.
+	type Place {
+		name   string  = ""
+		inside Place[] = []
+
+		def new(name string, inside Place[] = []) {
+			self.name = name
+			self.inside = inside
+		}
+	}
+
+	let world = [
+		new Place("Europe", [
+			new Place("France", [new Place("Paris"), new Place("Lyon")]),
+			new Place("Norway", [new Place("Oslo"), new Place("Bergen")]),
+		]),
+		new Place("Asia", [new Place("Japan", [new Place("Tokyo"), new Place("Osaka")])]),
+		new Place("Antarctica"),
+	]
+
+	def placeName(place Place) string {
+		return place.name
+	}
+
+	def placesIn(place Place) Place[] {
+		return place.inside
+	}
+
+	// A row of the grid.
+	type City {
+		name    string = ""
+		country string = ""
+		people  int    = 0
+
+		def new(name string, country string, people int) {
+			self.name = name
+			self.country = country
+			self.people = people
+		}
+	}
+
+	let cityRows = [
+		new City("Paris", "France", 2100000), new City("Oslo", "Norway", 710000), new City("Tokyo", "Japan", 14000000),
+		new City("Bern", "Switzerland", 134000), new City("Prague", "Czechia", 1300000), new City("Athens", "Greece", 640000),
+	]
+
+	def cityName(city City) string {
+		return city.name
+	}
+
+	def byCityName(a City, b City) int {
+		return a.name.compare(b.name)
+	}
+
+	def byPeople(a City, b City) int {
+		return a.people - b.people
+	}
+
+	// What the window with a frame of its own shows.
+	component FramedPage {
+		type {
+			def new() {
+				style.padding = new Edges(16(px))
+				style.gap = new Axes(8(px))
+			}
+
+			// The window it is in, found as any component finds its window.
+			def state() string {
+				let own = context<renderer.Window>()
+				return "no window" when own is none
+				return "{own.state}"
+			}
+		}
+
+		view {
+			Text(text = "This window has no frame from the desktop: a WindowChrome draws its border, its header and its buttons. Drag the header to move it.")
+			Text(text = "Its state: {state()}.")
+		}
+
+		style Area
+	}
+
+	// Opens a second window whose frame is a `WindowChrome`.
+	//
+	// Fails when the window cannot be opened.
+	def openFramedWindow() !none {
+		let config = new renderer.WindowConfig("A window with its own frame", 420, 220)
+		config.name = "framed"
+		config.chrome = WindowChrome(title = "A window with its own frame", icon = "menu")
+		let _ = try UI.openWindow(FramedPage(), config)
+		return none
+	}
+
+	// Opens that window unless it is open: `UI.window` finds it by the name it was given.
+	def openFramed() {
+		return unless UI.window(name = "framed") is none
+		openFramedWindow() onerror recover none
+	}
+
+	def openDrawer() {
+		counter.drawer = true
+	}
+
+	def closeDrawer() {
+		counter.drawer = false
+	}
+
+	def openSheet() {
+		counter.sheet = true
+	}
+
+	def closeSheet() {
+		counter.sheet = false
+	}
+
+	// Buttons that ask the `Toasts` above them to show a notice: what any component under
+	// a `ToastHost` does.
+	component Notices {
+		type {
+			undone int = 0
+
+			def say(text string, kind ToastKind) {
+				let toasts = context<Toasts>()
+				toasts.show(text, kind = kind) unless toasts is none
+			}
+
+			def saved() {
+				say("Saved.", ToastKind.Success)
+			}
+
+			def warned() {
+				say("The disk is nearly full.", ToastKind.Warning)
+			}
+
+			def failed() {
+				say("The file could not be written.", ToastKind.Danger)
+			}
+
+			def restore() {
+				undone++
+			}
+
+			def deleted() {
+				let toasts = context<Toasts>()
+				toasts.show("Deleted.", lasts = 8s, action = "Undo", onAction = restore) unless toasts is none
+			}
+
+			// More than the host shows at once: the others are counted above the stack.
+			def many() {
+				for let i = 1; i <= 5; i++ {
+					say("Notice {i} of 5.", ToastKind.Info)
+				}
+			}
+		}
+
+		view {
+			Button(label = "Saved", onClick = saved)
+			Button(label = "Warning", onClick = warned)
+			Button(label = "Failed", onClick = failed)
+			Button(label = "Delete, with Undo", onClick = deleted)
+			Button(label = "Five at once", onClick = many)
+			Text(text = "Undone {undone} times")
+		}
+
+		style {
+			Area
+			arrange = Arrange.Row
+			gap     = new Axes<Extent>(8(px))
+			align   = Align{horizontal: Alignment.Start, vertical: Alignment.Center}
+		}
+	}
+
 	// What the `Canvas` of the showcase draws: a dot going round, placed by the frame's
 	// time.
 	def drawOrbit(ctx RenderContext) {
@@ -512,6 +709,32 @@ module showcase.components {
 			// The tray icon is made once the window is there, on the task that runs it.
 			def attached() {
 				openTray() unless counter.tray
+			}
+		}
+
+		view {
+			ToastHost() {
+				ShowcasePage()
+			}
+			Drawer(open = counter.drawer, title = "A drawer", onClose = closeDrawer) {
+				Text(text = "It comes in from the start edge, over the page. Escape or a press beside it closes it.")
+				Button(label = "Close", onClick = closeDrawer)
+			}
+			Drawer(open = counter.sheet, side = Side.Below, title = "A sheet", onClose = closeSheet) {
+				Text(text = "The same component from the bottom edge, as high as what it holds.")
+				Button(label = "Close", onClick = closeSheet)
+			}
+		}
+
+		style Area
+	}
+
+	// What the window scrolls: every section.
+	component ShowcasePage {
+		type {
+			def new() {
+				style.width = fill
+				style.height = fill
 			}
 
 			// The ranges of `marked`, and the colour they were made for.
@@ -759,6 +982,40 @@ module showcase.components {
 							}
 						}
 					}
+					Section(title = "List")
+					Stage() {
+						List(manyRows, selected = counter.rows, selection = SelectionMode.Multiple, rowHeight = 24(px))
+					}
+					Text(text = "Ten thousand rows, of which only those that show are mounted. Selected: {counter.rows.len()}. A click selects, Shift and the command key select more; the arrows, Page Up, Page Down, Home and End move.")
+					Section(title = "Tree")
+					Stage() {
+						Tree(world, id = placeName, expand = placesIn, expanded = counter.open, selected = counter.places, rowHeight = 24(px)) {
+							rowRenderer = (it RowItem<Place>) => Text(text = it.content.name)
+						}
+					}
+					Text(text = "Open: {counter.open.join(", ")}. Selected: {counter.places.join(", ")}. A press on an arrow opens a node; Right opens it or goes to its first child, Left closes it or goes to its parent.")
+					Section(title = "Data grid")
+					Stage() {
+						DataGrid(cityRows, id = cityName, selected = counter.cities, sortBy = counter.sortBy, descending = counter.sortDown, rowHeight = 24(px), persist = "showcase.cities", columns = [
+							new GridColumn<City>("City", cell = (it RowItem<City>) => Text(text = it.content.name), order = byCityName),
+							new GridColumn<City>("Country", cell = (it RowItem<City>) => Text(text = it.content.country), width = 140(px)),
+							new GridColumn<City>("People", cell = (it RowItem<City>) => Text(text = "{it.content.people}"), width = 120(px), order = byPeople),
+						])
+					}
+					Text(text = "Sorted by \"{counter.sortBy}\"{counter.sortDown ?? (", last to first", "")}. A press on the City or People header sorts, a second the other way round, a third as given; drag the end of a header for another width, or double-click it to fit what the column holds; the widths are kept between runs. A text too long for its column ends in an ellipsis.")
+					Section(title = "Notices")
+					Notices()
+					Text(text = "Each button asks the Toasts above it (a ToastHost around the page) to show a notice; up to three stand one above another in the corner, and a count above them says how many wait: press it to see them all.")
+					Section(title = "Drawer and sheet")
+					Row(gap = 8(px)) {
+						Button(label = "Open the drawer", onClick = openDrawer)
+						Button(label = "Open the sheet", onClick = openSheet)
+					}
+					Section(title = "Window chrome")
+					Row(gap = 8(px)) {
+						Button(label = "Open a window with its own frame", onClick = openFramed)
+					}
+					Text(text = "WindowConfig.chrome takes the component that draws a window's frame; without one the desktop draws it. The window is found again with UI.window(name = \"framed\"), so the button opens it once.")
 					Section(title = "Popover")
 					Column() {
 						Button(label = "More", onClick = toggleMore)
