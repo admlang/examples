@@ -17,6 +17,7 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | [diffusion](ai/diffusion) | Draws a picture from a sentence with Stable Diffusion through `std.ai.diffusion`, with LoRAs (`--lora FILE[:STRENGTH]`), on the GPU when there is one. |
 | [experts](ai/experts) | Runs a mixture-of-experts model on a GPU too small to hold it: the same answer with less GPU memory, and the speed each budget gives. |
 | [embeddings](ai/embeddings) | Finds the sentences closest in meaning to a question with an embedding model (GGUF or ONNX) through `std.ai.embeddings`. |
+| [tune](ai/tune) | Teaches a chat model new facts with LoRA fine-tuning through `std.ai.llm` (`model.tune`, `learn`, `save`): a few epochs over example conversations, the GGUF adapter saved and loaded again, the answer before and after. |
 | [speak](ai/speak) | Text to speech with a Kokoro voice through `std.ai.speech`: reads text aloud through the speakers or into a sound file, American or British English. |
 | [whisper](ai/whisper) | Speech to text with Whisper through `std.ai.speech`: `whisper.adm` writes down a sound file, `listen.adm` what you say into the microphone as you say it (Ctrl+C stops). |
 

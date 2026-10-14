@@ -1,0 +1,98 @@
+// Teaches a language model new facts with LoRA fine-tuning: a small
+// adapter is trained on example conversations while the model's own
+// weights stay as they are, then saved as a GGUF adapter that llama.cpp,
+// Ollama (ADAPTER in a Modelfile) and `llm.load(..., adapters = ...)` read.
+//
+//   adm run --release ai/tune/tune.adm -- MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS]
+//
+// MODEL is a GGUF chat model (Ollama keeps qwen3:0.6b under
+// ~/.ollama/models/blobs or /usr/share/ollama/.ollama/models/blobs;
+// `ollama show --modelfile qwen3:0.6b` prints the path). DATA holds one
+// conversation per line in the usual chat format:
+//   {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+// (ai/tune/facts.jsonl, about a made-up kettle, by default). The model
+// learns the assistant replies. It runs on the GPU when there is one.
+application tune {
+	use (
+		std.os
+		std.time
+		std.data.encoding::(JSON)
+		std.ai.llm
+		std.ai.llm::(Message, Role, Adapter)
+	)
+
+	// A question the data answers, asked before and after tuning.
+	// Worded unlike any line of the data.
+	const question = "I am thinking of buying a Brightwater kettle. Which company is behind it, and is it fast?"
+
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: tune MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS]")
+			return 0
+		}
+		let data = args.len() > 2 ?? (args[2], "ai/tune/facts.jsonl")
+		let out = args.len() > 3 ?? (args[3], "brightwater.gguf")
+		let epochs = args.len() > 4 ?? (args[4].toInt<int>(), 3)
+		let conversations = try readConversations(data)
+		let model = try llm.load(args[1])
+		println("{model.info.name}: {conversations.len()} conversations, on the {model.device == llm.Device.Gpu ?? ("GPU", "CPU")}")
+		println("before: {try answer(model)}")
+
+		let tuning = try model.tune(rank = 16, alpha = 32.0)
+		tuning.learningRate = 0.0002
+		let began = time.now()
+		for let epoch = 1; epoch <= epochs; epoch++ {
+			let total = 0.0
+			let steps = 0
+			// Four conversations a step.
+			for let from = 0; from < conversations.len(); from += 4 {
+				total += try tuning.learn(conversations[from:(from + 4).min(conversations.len())].clone())
+				steps++
+			}
+			println("epoch {epoch}: mean loss {"%.3f".format(total / float(steps))}")
+		}
+		println("tuned in {"%.1f".format(time.since(began).seconds())} s")
+		try tuning.save(out)
+		println("saved {out}")
+
+		// The model keeps the adapter after tuning; a fresh load reads it from
+		// the file.
+		println("after:  {try answer(model)}")
+		let reloaded = try llm.load(args[1], adapters = Adapter[Adapter{path: out}])
+		println("loaded: {try answer(reloaded)}")
+		return 0
+	}
+
+	// The model's reply to `question`, without reasoning first.
+	def answer(model llm.LanguageModel) !string {
+		let session = model.session()
+		session.temperature = 0.0
+		session.thinking = false
+		session.limit = 80
+		return (try session.say(question)).trim()
+	}
+
+	// The conversations of a JSON-lines file.
+	// Fails when the file cannot be read or a line is not a conversation.
+	def readConversations(path string) !Message[][] {
+		let out Message[][]
+		let codec = new JSON()
+		for let (_, line) in string(try os.readFile(path)).split("\n") {
+			continue when line.trim().len() == 0
+			let example = try codec.parse(line)
+			fail "tune: a line of {path} is not a JSON object" unless example is map<string, any>
+			let turns = example.get("messages")
+			fail "tune: a line of {path} has no messages" unless turns is any[]
+			let conversation Message[]
+			for let (_, turn) in turns {
+				fail "tune: a message of {path} is not an object" unless turn is map<string, any>
+				let role = turn.get("role")
+				let content = turn.get("content")
+				fail "tune: a message of {path} lacks its role or content" unless role is string && content is string
+				conversation.push(Message{role: role == "assistant" ?? (Role.Assistant, role == "system" ?? (Role.System, Role.User)), text: content})
+			}
+			out.push(conversation)
+		}
+		return out
+	}
+}
