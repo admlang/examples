@@ -117,7 +117,7 @@ application chat {
 		return llm.Tool{
 			name:        "read_file",
 			description: "Reads a text file and returns its contents (at most 16 KB).",
-			parameters:  llm.ToolParameter[llm.ToolParameter{name:"path", kind:llm.ParameterKind.String, description:"Path of the file"}],
+			parameters:  llm.ToolParameter[llm.ToolParameter{name: "path", kind: llm.ParameterKind.String, description: "Path of the file"}],
 			run:         def (call llm.ToolCall) !string {
 				use helpers::(FileArgs, home)
 				// `decode` fills the struct's fields from the call's JSON arguments.

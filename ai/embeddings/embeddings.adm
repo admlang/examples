@@ -1,0 +1,44 @@
+// Finds the sentences closest in meaning to a question with an embedding
+// model: each sentence becomes a vector once, the question becomes one too,
+// and the nearest vectors are the best answers.
+//
+//   adm run --release ai/embeddings/embeddings.adm -- MODEL "a question"
+//
+// MODEL is a GGUF embedding model (Ollama keeps all-minilm and
+// nomic-embed-text under ~/.ollama/models/blobs or
+// /usr/share/ollama/.ollama/models/blobs; `ollama show --modelfile NAME`
+// prints the path) or the folder of a sentence-transformers ONNX export.
+// A vector is a plain float32[]: a database stores it as bytes.
+application embeddings {
+	use (
+		std.time
+		std.ai.embeddings
+	)
+
+	const sentences = string[
+		"The cat slept on the warm windowsill all afternoon.",
+		"Our quarterly revenue grew by twelve percent.",
+		"Preheat the oven to 200 degrees before baking the bread.",
+		"The striker scored twice in the second half.",
+		"Rain is expected across the north this weekend.",
+		"The new phone has a faster chip and a bigger battery.",
+		"She planted tomatoes and basil in the garden.",
+		"The central bank kept interest rates unchanged.",
+	]
+
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: embeddings MODEL \"a question\"")
+			return 0
+		}
+		let model = try embeddings.load(args[1])
+		let started = time.now()
+		let vectors = try model.embed(sentences)
+		println("{sentences.len()} sentences as {model.dimensions}-number vectors in {time.since(started).seconds()} s ({model.device})")
+		let question = try model.embed(args[2])
+		for let (rank, i) in embeddings.nearest(question, vectors, 3) {
+			println("{rank + 1}. {"%.3f".format(embeddings.similarity(question, vectors[i]))}  {sentences[i]}")
+		}
+		return 0
+	}
+}

@@ -1,0 +1,45 @@
+// Draws a picture from a sentence with Stable Diffusion in ONNX form.
+//
+//   adm run --release ai/diffusion/diffusion.adm -- MODEL_DIR "a prompt" [OUT.png] [STEPS] [SEED] [--lora FILE[:STRENGTH]]...
+//
+// MODEL_DIR is an export like onnx-community/stable-diffusion-v1-5-ONNX.
+// Each --lora merges a LoRA file (safetensors, kohya or diffusers keys) into
+// the model, at STRENGTH (1 without one). Runs on the GPU when there is one.
+application diffusion {
+	use (
+		std.time
+		std.ai.diffusion
+	)
+
+	def new(args string[]) !int {
+		let positional string[]
+		let loras diffusion.Lora[]
+		let i = 1
+		for i < args.len() {
+			if args[i] == "--lora" && i + 1 < args.len() {
+				let parts = args[i + 1].split(":")
+				let strength = parts.len() > 1 ?? (parseFloat<float>(parts[1]), 1.0)
+				loras.push(diffusion.Lora{path: parts[0], strength: strength})
+				i += 2
+				continue
+			}
+			positional.push(args[i])
+			i++
+		}
+		if positional.len() < 2 {
+			println("usage: diffusion MODEL_DIR \"a prompt\" [OUT.png] [STEPS] [SEED] [--lora FILE[:STRENGTH]]...")
+			return 0
+		}
+		let out = positional.len() > 2 ?? (positional[2], "diffusion.png")
+		let steps = positional.len() > 3 ?? (parseInt<int>(positional[3]), 30)
+		let seed = positional.len() > 4 ?? (parseInt<int>(positional[4]), 42)
+		let started = time.now()
+		let painter = try diffusion.load(positional[0], loras = loras)
+		println("loaded in {time.since(started).seconds()} s on {painter.device}")
+		started = time.now()
+		let picture = try painter.draw(positional[1], steps = steps, seed = seed)
+		try picture.save(out)
+		println("drew {out} in {time.since(started).seconds()} s")
+		return 0
+	}
+}

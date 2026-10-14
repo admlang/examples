@@ -1,0 +1,30 @@
+// Writes down what you say into the microphone, as you say it. Ctrl+C stops.
+//
+//   adm run --release ai/whisper/listen.adm -- MODEL_DIR [LANGUAGE] [MICROPHONE]
+//
+// MODEL_DIR is a Whisper export like onnx-community/whisper-base, LANGUAGE a
+// code like `en` (found by the model without one), MICROPHONE an id that
+// `adm run devices/list/main.adm` prints (the default microphone without
+// one). The line fills in as you speak; a pause starts a new one.
+application listen {
+	use (
+		std.devices
+		std.ai.speech
+	)
+
+	def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: listen MODEL_DIR [LANGUAGE] [MICROPHONE]")
+			return 0
+		}
+		let model = try speech.load(args[1], language = args.len() > 2 ?? (args[2], ""))
+		let microphone = try devices.openMicrophone(args.len() > 3 ?? (args[3], ""))
+		println("listening on {microphone.device.name}; Ctrl+C stops")
+		for let heard in model.listen(microphone) {
+			fail heard.error.message when heard.error is error
+			print("\r\x1b[2K{heard.text}")
+			println("") when heard.final
+		}
+		return 0
+	}
+}

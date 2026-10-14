@@ -1,0 +1,93 @@
+// Runs a mixture-of-experts model on a GPU too small to hold it.
+//
+//   adm run --release ai/experts/experts.adm -- MODEL.gguf [GIB...]
+//
+// A mixture-of-experts model (Qwen3-30B-A3B, Mixtral, gpt-oss) has many
+// experts in each layer, and a router that picks a few of them for each
+// token. When the GPU cannot hold every expert, `llm.load` keeps as many of
+// each layer's experts there as fit and the others in host memory, copying
+// an expert in when a token picks it. The answer stays the same; the copies
+// cost speed. This program answers one question with all the GPU's free
+// memory, then again within each budget given in GiB (12 and 8 when none
+// are given), and prints the speeds and whether the answers match.
+application experts {
+	use (
+		std.ai.llm
+		std.formats.ai
+	)
+
+	const question = "Explain in three sentences why the sky is blue."
+
+	// The program's entry point: `args[1]` is the model file, the GPU
+	// budgets in GiB follow. Fails when the model cannot be read or loaded
+	// within a budget, or generation fails.
+	async def new(args string[]) !int {
+		if args.len() < 2 {
+			println("usage: experts MODEL.gguf [GIB...]")
+			return 0
+		}
+		try showExperts(args[1])
+
+		// 0 lets the model take all the free GPU memory.
+		let budgets = int[0]
+		for let given in args[2:] {
+			budgets.push(parseInt<int>(given))
+		}
+		budgets.push(12, 8) when budgets.len() == 1
+
+		let first = ""
+		for let gib in budgets {
+			let reply = try answer(args[1], gib)
+			if first == "" {
+				first = reply
+				println("\n{reply}\n")
+			} else {
+				println("  same answer as with all the memory: {reply == first}")
+			}
+		}
+		return 0
+	}
+
+	// Prints how many experts each layer has and how many a token uses,
+	// read from the file's metadata without loading the weights.
+	def showExperts(path string) !none {
+		let file = try ai.load(path)
+		let found = file.getString("general.architecture")
+		let arch = found is none ?? ("", found)
+		let experts = file.getInt(arch + ".expert_count")
+		let used = file.getInt(arch + ".expert_used_count")
+		file.close()
+		if experts is none || used is none {
+			println("{path} is not a mixture of experts: the whole model must fit the GPU")
+		} else {
+			println("{arch}: {experts} experts in each layer, {used} used for each token")
+		}
+		return none
+	}
+
+	// Loads the model on the GPU within `gib` GiB (0: all that is free),
+	// answers the question and prints the speeds. Greedy decoding (a
+	// temperature of 0) makes the answers comparable between budgets.
+	// Fails when the budget does not hold the model with the experts one
+	// token uses, or generation fails.
+	def answer(path string, gib int) !string {
+		let model = try llm.load(path, llm.Device.Gpu, gpuMemory = gib << 30)
+		let session = model.session(context = 2048)
+		session.temperature = 0.0
+		session.limit = 1024
+
+		try session.ask(question)
+		let reply = ""
+		for {
+			let piece = try session.next()
+			break when piece is none
+			reply += piece
+		}
+
+		let s = session.stats()
+		let budget = gib == 0 ?? ("all free GPU memory", "{gib} GiB of GPU memory")
+		println("{budget}: prompt {"%.0f".format(s.promptSpeed)} tokens/s, " +
+					"answer {"%.1f".format(s.generateSpeed)} tokens/s")
+		return reply
+	}
+}
