@@ -1,0 +1,38 @@
+// Reads text aloud with a Kokoro voice: through the speakers, or into a
+// sound file.
+//
+//   adm run --release ai/speak/speak.adm -- MODEL_DIR "Some text." [VOICE] [OUT.wav]
+//
+// MODEL_DIR is a Kokoro export like onnx-community/Kokoro-82M-v1.0-ONNX
+// (onnx/model.onnx, tokenizer.json, voices/*.bin). VOICE is one of its
+// voices: af_heart (the default), am_michael, bf_emma, ... (a American,
+// b British English). Write names as they sound with markup:
+// "[Kokoro](/kˈOkəɹO/) speaks".
+application speak {
+	use (
+		std.time
+		std.devices
+		std.formats.audio
+		std.ai.speech
+	)
+
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: speak MODEL_DIR \"text\" [VOICE] [OUT.wav]")
+			return 0
+		}
+		let voice = try speech.loadVoice(args[1], name = args.len() > 3 ?? (args[3], "af_heart"))
+		let started = time.now()
+		let sound = try voice.speak(args[2])
+		println("{sound.info.length} of speech in {time.since(started).seconds()} s on {voice.device()}")
+		if args.len() > 4 {
+			try audio.save(sound, args[4])
+			return 0
+		}
+		let speaker = try devices.openSpeaker()
+		defer speaker.close()
+		try speaker.play(sound)
+		try speaker.drain()
+		return 0
+	}
+}
