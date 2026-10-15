@@ -3,7 +3,7 @@
 // weights stay as they are, then saved as a GGUF adapter that llama.cpp,
 // Ollama (ADAPTER in a Modelfile) and `llm.load(..., adapters = ...)` read.
 //
-//   adm run --release ai/tune/tune.adm -- MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS]
+//   adm run --release ai/tune/tune.adm -- MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS] [--tf32]
 //
 // MODEL is a GGUF chat model (Ollama keeps qwen3:0.6b under
 // ~/.ollama/models/blobs or /usr/share/ollama/.ollama/models/blobs;
@@ -11,11 +11,13 @@
 // conversation per line in the usual chat format:
 //   {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
 // (ai/tune/facts.jsonl, about a made-up kettle, by default). The model
-// learns the assistant replies. It runs on the GPU when there is one.
+// learns the assistant replies. It runs on the GPU when there is one;
+// --tf32 trains on its tensor cores (Ampere or newer).
 application tune {
 	use (
 		std.os
 		std.time
+		std.gpu
 		std.data.encoding::(JSON)
 		std.ai.llm
 		std.ai.llm::(Message, Role, Adapter)
@@ -25,9 +27,18 @@ application tune {
 	// Worded unlike any line of the data.
 	const question = "I am thinking of buying a Brightwater kettle. Which company is behind it, and is it fast?"
 
-	def new(args string[]) !int {
+	def new(given string[]) !int {
+		let args string[]
+		let precision = gpu.Precision.Exact
+		for let (_, arg) in given {
+			if arg == "--tf32" {
+				precision = gpu.Precision.Tf32
+			} else {
+				args.push(arg)
+			}
+		}
 		if args.len() < 2 {
-			println("usage: tune MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS]")
+			println("usage: tune MODEL [DATA.jsonl] [OUT.gguf] [EPOCHS] [--tf32]")
 			return 0
 		}
 		let data = args.len() > 2 ?? (args[2], "ai/tune/facts.jsonl")
@@ -38,7 +49,7 @@ application tune {
 		println("{model.info.name}: {conversations.len()} conversations, on the {model.device == llm.Device.Gpu ?? ("GPU", "CPU")}")
 		println("before: {try answer(model)}")
 
-		let tuning = try model.tune(rank = 16, alpha = 32.0)
+		let tuning = try model.tune(rank = 16, alpha = 32.0, precision = precision)
 		tuning.learningRate = 0.0002
 		let began = time.now()
 		for let epoch = 1; epoch <= epochs; epoch++ {
