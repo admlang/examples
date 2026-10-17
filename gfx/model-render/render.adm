@@ -1,0 +1,118 @@
+// Draws a 3D model to a picture: glTF, GLB, OBJ or STL in, a PNG (or any
+// image format) out, or an animated GIF of the model's animation.
+//
+//   adm run --release gfx/model-render/render.adm -- gfx/model-render/models/Fox/Fox.glb fox.png
+//   adm run --release gfx/model-render/render.adm -- gfx/model-render/models/Fox/Fox.glb fox.gif
+//
+// Options after the two files:
+//
+//   --size WxH        picture size, 640x480 by default
+//   --samples N       pixels drawn per output pixel along each axis, 1 to 4; 2 by default
+//   --time T          seconds into the animation for a still picture; 0 by default
+//   --frames N        frames of a GIF over the animation's length; 24 by default
+//   --background #rgb the background colour, transparent by default
+//   --camera NAME     the node whose camera to look through; the model's first, or
+//                     one in front of the scene, by default
+application render {
+	use (
+		std.formats.image::(ImageFrame)
+		std.formats.image::(GIF)
+		std.formats.models
+		std.formats.models::(Model, Node)
+		std.gfx.color::(BlendMode, Color, RGBA)
+		std.gfx.scene
+		std.gfx.scene::(RenderOptions)
+		std.math.geom::(Point)
+		std.os
+		std.time
+	)
+
+	// The program's entry point: `args[1]` is the model and `args[2]` the
+	// picture to write, the rest options. Fails when the model cannot be
+	// read, or the picture cannot be encoded or written.
+	def new(args string[]) !int {
+		if args.len() < 3 {
+			println("usage: render MODEL OUTPUT [--size WxH] [--samples N] [--time T] [--frames N] [--background #rgb] [--camera NAME]")
+			return 1
+		}
+		let width = 640
+		let height = 480
+		let options = RenderOptions{samples: 2}
+		let frames = 24
+		let cameraName = ""
+		for let i = 3; i + 1 < args.len(); i += 2 {
+			let value = args[i + 1]
+			switch args[i] {
+				case "--size":
+					let parts = value.split("x")
+					if parts.len() != 2 {
+						println("--size wants WIDTHxHEIGHT, got {value}")
+						return 1
+					}
+					width = parseInt<int>(parts[0])
+					height = parseInt<int>(parts[1])
+				case "--samples":
+					options.samples = parseInt<int>(value)
+				case "--time":
+					options.time = parseFloat<float>(value)
+				case "--frames":
+					frames = parseInt<int>(value)
+				case "--background":
+					options.background = new Color(value)
+				case "--camera":
+					cameraName = value
+				default:
+					println("unknown option {args[i]}")
+					return 1
+			}
+		}
+
+		let started = time.now()
+		let model = try models.load(args[1])
+		let loaded = time.since(started)
+		println("{args[1]}: {model.triangleCount()} triangles, {model.meshes.len()} meshes, {model.materials.len()} materials, {model.textures.len()} textures, {model.animations.len()} animations ({loaded})")
+		if cameraName.len() > 0 {
+			options.camera = model.node(cameraName)
+			if options.camera is none {
+				println("no node named {cameraName}")
+				return 1
+			}
+		}
+
+		let output = args[2]
+		if output.lower().endsWith(".gif") && model.animations.len() > 0 {
+			try animation(model, output, width, height, options, frames)
+			return 0
+		}
+		let drawn = time.now()
+		let picture = scene.render(model, width, height, options)
+		println("drawn {width}x{height} in {time.since(drawn)}")
+		try picture.save(output)
+		println("wrote {output}")
+		return 0
+	}
+
+	// animation draws `frames` pictures spread over the longest animation
+	// and writes them as a looping GIF. Fails when the file cannot be written.
+	def animation(model Model, output string, width int, height int, options RenderOptions, frames int) !none {
+		let length = 0.0
+		for let (_, anim) in model.animations {
+			length = length.max(anim.duration())
+		}
+		let count = frames.max(1)
+		let gif = new GIF()
+		let step = length / float(count)
+		let drawn = time.now()
+		for let k = 0; k < count; k++ {
+			options.time = step * float(k)
+			let picture = scene.render(model, width, height, options)
+			gif.frames.push(ImageFrame{image: picture, length: (1000ms).scale(step), offset: new Point(0.0, 0.0), blendMode: BlendMode.Normal})
+		}
+		println("drawn {count} frames of {width}x{height} over {length} s in {time.since(drawn)}")
+		let file = try os.open(output, "w")
+		defer file.close()
+		try gif.encode(file)
+		println("wrote {output}")
+		return none
+	}
+}

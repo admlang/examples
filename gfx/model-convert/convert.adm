@@ -1,0 +1,65 @@
+// Converts a 3D model from one format to another, and prints what it holds.
+//
+//   adm run --release gfx/model-convert/convert.adm -- robot.glb robot.obj
+//   adm run --release gfx/model-convert/convert.adm -- part.stl part.gltf
+//
+// Formats it reads and writes, by extension: .gltf .glb .obj .stl. The
+// input's format is found from the file's content (its extension for the
+// text formats), the output's from its extension. Files the output format
+// keeps beside the model (a glTF's buffer and images, an OBJ's material
+// library and textures) are written into the output's folder.
+application convert {
+	use (
+		std.formats.models
+		std.formats.models::(Model, Node)
+	)
+
+	// The program's entry point: `args[1]` is the model to read and
+	// `args[2]` the file to write. Fails when the input cannot be read or
+	// is not a model, or when the output's extension is not a model format
+	// or the files cannot be written.
+	def new(args string[]) !int {
+		if args.len() != 3 {
+			println("usage: convert INPUT OUTPUT")
+			return 1
+		}
+		let model = try models.load(args[1])
+		describe(model)
+		try model.save(args[2])
+		println("wrote {args[2]}")
+		return 0
+	}
+
+	// describe prints the model's parts: its tree of nodes with what each
+	// shows, then the counts.
+	def describe(model Model) {
+		println("nodes:")
+		for let (_, root) in model.nodes {
+			tree(root, "  ")
+		}
+		println("{model.meshes.len()} meshes, {model.triangleCount()} triangles, {model.vertexCount()} vertices")
+		println("{model.materials.len()} materials, {model.textures.len()} textures, {model.resources.len()} embedded files")
+		println("{model.cameras.len()} cameras, {model.lights.len()} lights, {model.skins.len()} skins, {model.animations.len()} animations")
+		for let (_, anim) in model.animations {
+			println("  animation {anim.name}: {anim.channels.len()} channels, {anim.duration()} s")
+		}
+		for let key in model.metadata.keys() {
+			let value = model.metadata.get(key)
+			println("  {key}: {value}") unless value is none
+		}
+	}
+
+	def tree(node Node, indent string) {
+		let what = ""
+		let mesh = node.mesh
+		what += " mesh {mesh.name} ({mesh.triangleCount()} triangles)" unless mesh is none
+		what += " camera" unless node.camera is none
+		what += " light" unless node.light is none
+		what += " skinned" unless node.skin is none
+		let name = node.name.len() > 0 ?? (node.name, "(unnamed)")
+		println("{indent}{name}{what}")
+		for let (_, child) in node.children {
+			tree(child, indent + "  ")
+		}
+	}
+}

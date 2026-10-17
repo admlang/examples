@@ -56,6 +56,8 @@ Install ADM from [adm-lang.dev](https://adm-lang.dev), clone this repository, an
 | [gpu_canvas](gfx/gpu_canvas) | An animated scene drawn on the GPU in a window, with a shader written in ADM. |
 | [icon-sizes](gfx/icon-sizes) | Lists the images inside an icon or cursor file and writes the icon at a chosen size. |
 | [image-convert](gfx/image-convert) | Reads an image in one format and saves it in another, picked by the output file's extension. |
+| [model-convert](gfx/model-convert) | Converts a 3D model between glTF, GLB, OBJ and STL and prints its nodes, meshes, materials, skins and animations. |
+| [model-render](gfx/model-render) | Draws a 3D model (glTF, GLB, OBJ, STL) to a picture, or its animation to a GIF, with sample models of each kind beside it. |
 | [psd-layers](gfx/psd-layers) | Lists the layers of a Photoshop document and saves each visible layer as its own image. |
 | [seam-carving](gfx/seam-carving) | Resizes an image with seam carving, which removes the least important paths of pixels so the subject keeps its shape. |
 | [svg-animation](gfx/svg-animation) | Plays an animated SVG in a window, or writes its frames as PNG files. |
