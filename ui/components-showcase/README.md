@@ -12,7 +12,7 @@ adm run ui/components-showcase/showcase.adm
 | Window, theme and tray | the window's icon (`WindowConfig.icon`, drawn on a `Canvas`); buttons that make `UI.theme()` light, dark or the desktop's (`Theme.follow`); `UI.showTray` with a menu that shows, hides and quits; minimize (`Window.state`), hide to tray (`Window.visible`), and closing to the tray (`UI.closeRequested`, `cancel`) |
 | Text | `Text` wrapping in the window's width; ranges styled apart with `TextRun` |
 | Buttons | `Button` idle, under the pointer, pressed, focused and disabled; a click, Tab and Shift+Tab between them, Space or Enter on the focused one |
-| Pressable | `Pressable` making a `Panel` and its text something to click |
+| Clicks | a `Panel` given `onClick`: any component takes clicks |
 | Text fields | `TextField`: caret, selection with the pointer and the keys, clipboard, a placeholder, a password field |
 | Label, search field and text area | `Label` focusing the control after it; `TextArea`: several lines, Up and Down, Page Up and Page Down, the wheel; `SearchField` with a magnifier, and a cross at its end and Escape that empty it |
 | Menus and tooltips | a `tooltip` on a button, shown when the pointer rests on it or Tab reaches it; `Menu` under a button and `ContextMenu` on the secondary button, both with the arrows moving among their lines |
@@ -31,6 +31,12 @@ adm run ui/components-showcase/showcase.adm
 | Popover | `Popover` under a button: it opens over the page, and Escape or a press outside closes it |
 | Rows and columns | `Row` and `Column` with their `gap` |
 | Scrolling | the whole page is in a `ScrollView`: turn the wheel, drag the bar's thumb, click beside it for a page, or focus a button and use Page Up, Page Down, Home, End and the arrows  |
+| Content beside text | `start`/`end` slots on a `Button`, a `Chip` and a `TextField`; a `Dropdown` whose lines a `rowRenderer` draws; a `Tab` with a `heading` |
+| Colour picker and well | `ColorPicker` (square, hues, opacity, hex, swatches) and a `ColorWell` opening one under it |
+| Stepper | `Stepper` with an optional step and one with an error; a click on a step goes there |
+| Chart | `Chart` with an `AreaSeries` and a 2000-point `LineSeries`, two `Axis`es and a `Legend`: wheel zoom, drag pan, Home, a click picking a point |
+| Map | `MapView` over OpenStreetMap tiles (kept on disk) with a `Polyline` and a `Marker`: drag, wheel and double click |
+| Navigation | `@route` pages shown by `Routes`: a start page, a guides layout with an `Outlet`, a guide whose name and tab come from the path, `Link(to = …)` between them, and `notFound` |
 | Palette | the colours of `UI.theme().palette`, drawn by a component with its own `render` |
 
 Switch the desktop between light and dark, or change its accent colour, while the window is

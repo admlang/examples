@@ -6,7 +6,8 @@
 // split button, a chip, an avatar, a hover card, a toast, an accordion, a
 // canvas, a split pane with tabbed pages, a popover, a list of ten thousand
 // rows, a tree, a data grid, notices asked for in code, drawers, a second
-// window with a frame of its own,
+// window with a frame of its own, content beside a control's text, a colour
+// picker and well, a stepper, a chart, a map, pages at paths,
 // rows, columns and panels, and the theme's palette. The window has an icon,
 // buttons switch between the light and the dark theme, and an icon in the
 // system tray shows, hides and quits the program.
@@ -19,11 +20,16 @@ module showcase.components {
 	use (
 		std.gfx.canvas
 		std.formats.image
-		std.gfx.color::(Color, RGBA)
+		std.gfx.color::(Color, ColorFormat, RGBA)
 		std.math::(Tau, cos, sin)
+		std.math.geo
+		std.os
 		std.math.geom::(Axes, Circle, Corners, Edges, Point, Rect)
 		std.ui::(CloseRequest, ColorScheme, MenuEntry, RenderContext, TextKind, Theme, UI, WindowState)
+		std.ui.charts::*
 		std.ui.components::*
+		std.ui.maps::*
+		std.ui.navigation::(MemoryHistory, Outlet, Routes, route)
 		std.ui.renderer
 		std.ui.styles::*
 		std.units::(Extent, Pixels)
@@ -45,49 +51,59 @@ module showcase.components {
 		more     bool
 		// What the checkbox, the switch, the radios and the slider hold.
 		agreed   bool
-		wrap     bool     = true
-		size     string   = "medium"
-		volume   float    = 40.0
+		wrap     bool           = true
+		size     string         = "medium"
+		volume   float          = 40.0
 		// The current tab, the toggle buttons, the dropdown's choice, and whether the
 		// dialog is shown.
 		tab      int
-		bold     bool     = true
+		bold     bool           = true
 		italic   bool
-		font     int      = 1
+		font     int            = 1
 		asking   bool
 		// The step of the breadcrumbs picked last, and how often the link was followed.
-		step     int      = -1
+		step     int            = -1
 		follows  int
 		// What the search field holds and what was last searched for, whether the menu
 		// is shown, what was picked from a menu last, and the page the tabs show.
 		query    string
 		sought   string
 		menu     bool
-		picked   string   = "nothing"
+		picked   string         = "nothing"
 		page     int
 		// Which theme the buttons asked for, whether the tray icon is there, and whether
 		// closing the window sends it to the tray.
-		look     string   = "the desktop's"
+		look     string         = "the desktop's"
 		// The number field's number, the combo box's text, what the split button ran
 		// last, how often the chip's cross was pressed, and whether the toast shows.
-		count    float    = 3.0
+		count    float          = 3.0
 		city     string
-		ran      string   = "nothing"
+		ran      string         = "nothing"
 		removed  int
 		saved    bool
 		tray     bool
-		toTray   bool     = true
+		toTray   bool           = true
 		// The rows selected in the list, the nodes open and selected in the tree, the
 		// rows selected in the grid and how it is sorted, and whether the drawer and
 		// the sheet show.
-		rows     string[] = []
-		open     string[] = ["Europe"]
-		places   string[] = []
-		cities   string[] = []
+		rows     string[]       = []
+		open     string[]       = ["Europe"]
+		places   string[]       = []
+		cities   string[]       = []
 		sortBy   string
 		sortDown bool
 		drawer   bool
 		sheet    bool
+		// The colours of the picker and the well, the stepper's step and what it said
+		// last, the part of the chart shown and the point picked on it, and where the map
+		// is.
+		accent   Color          = new Color(RGBA{r: 53, g: 132, b: 228, a: 255})
+		paint    Color          = new Color(RGBA{r: 46, g: 194, b: 126, a: 255})
+		stage    int            = 1
+		shown    ChartViewport  = ChartViewport{}
+		point    string         = "none yet"
+		center   geo.Coordinate = new geo.Coordinate(51.4800, -0.0040)
+		zoom     float          = 15.0
 	}
 
 	let counter = new Counter()
@@ -135,6 +151,120 @@ module showcase.components {
 	def follow() {
 		counter.follows++
 	}
+
+	// A step of the stepper was clicked: go there.
+	def goToStage(index int) {
+		counter.stage = index
+	}
+
+	def nextStage() {
+		counter.stage = (counter.stage + 1).min(3)
+	}
+
+	// A point of the chart was clicked.
+	def pickPoint(at ChartPoint) {
+		counter.point = "series {at.series}, item {at.index}"
+	}
+
+	// The chart's data: a slow wave of two thousand points with a fast ripple on it, and
+	// a bar for each of twelve months.
+	let waveXs = waveAxis()
+	let waveYs = waveValues()
+	let months = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
+	let sales = [3.0, 4.5, 6.0, 5.5, 7.0, 8.5, 9.0, 8.0, 6.5, 5.0, 4.0, 6.0]
+
+	def waveAxis() float[] {
+		let xs float[]
+		for let i = 0; i < 2000; i++ {
+			xs.push(float(i) / 2000.0 * 12.0)
+		}
+		return xs
+	}
+
+	def waveValues() float[] {
+		let ys float[]
+		for let i = 0; i < 2000; i++ {
+			let x = float(i) / 2000.0 * 12.0
+			ys.push(6.0 + 3.0 * sin(x / 12.0 * Tau) + 0.4 * sin(x * 40.0))
+		}
+		return ys
+	}
+
+	// The map's tiles, from OpenStreetMap, kept on disk between runs.
+	let mapTiles = new XyzTiles("https://tile.openstreetmap.org/\{z\}/\{x\}/\{y\}.png", attribution = "© OpenStreetMap contributors", userAgent = "adm-components-showcase", cacheDir = mapCache())
+
+	def mapCache() string {
+		let home = os.appHome() onerror recover ""
+		return home == "" ?? ("", os.join(home, "tiles"))
+	}
+
+	// The pages of the navigation section: a start page, a layout for the guides with an
+	// `Outlet` for the guide shown, and a guide whose name and tab come from the location.
+	@route("/")
+	component StartPage {
+		type {}
+
+		view {
+			Text("Start. Pick a guide:")
+			Row(gap = 8(px)) {
+				Link("Units", to = "/guides/units")
+				Link("Styles", to = "/guides/styles?tab=examples")
+				Link("No such page", to = "/nowhere")
+			}
+		}
+
+		style {
+			ColumnStyle
+		}
+	}
+
+	@route("/guides")
+	component GuidesLayout {
+		type {}
+
+		view {
+			Row(gap = 8(px)) {
+				Link("Start", to = "/")
+				Text("Guides")
+			}
+			Outlet()
+		}
+
+		style {
+			ColumnStyle
+		}
+	}
+
+	@route("/guides/\{name\}?tab")
+	component GuidePage {
+		type {
+			@input
+			name string
+
+			@input
+			tab string = "overview"
+		}
+
+		view {
+			Text("The {name} guide, {tab} tab.")
+			Row(gap = 8(px)) {
+				Link("Overview", to = "/guides/{name}")
+				Link("Examples", to = "/guides/{name}?tab=examples")
+			}
+		}
+
+		style {
+			ColumnStyle
+		}
+	}
+
+	// Where the navigation section has been.
+	let guideHistory = new MemoryHistory("/")
+
+	// A walk through Greenwich Park, from the Royal Observatory to the Cutty Sark, and
+	// where it starts.
+	let walk = [new geo.Coordinate(51.4769, -0.0005), new geo.Coordinate(51.4810, -0.0036), new geo.Coordinate(51.4826, -0.0096)]
+	let square = new geo.Coordinate(51.4769, -0.0005)
 
 	// One colour of the palette: a filled square with a line around it.
 	component Swatch {
@@ -786,11 +916,9 @@ module showcase.components {
 					}
 					Tally(of = "presses")
 					Text(text = "Pressed {counter.presses} times, one square each. Tab and Shift+Tab move the focus; Space or Enter presses the focused button.")
-					Section(title = "Pressables")
-					Pressable(onClick = opened) {
-						Panel() {
-							Text(text = "A panel inside a Pressable: click anywhere on it. Opened {counter.opened} times.")
-						}
+					Section(title = "Clicks")
+					Panel(onClick = opened) {
+						Text(text = "A panel given onClick: click anywhere on it. Opened {counter.opened} times.")
 					}
 					Tally(of = "opened")
 					Section(title = "Choices")
@@ -1037,6 +1165,93 @@ module showcase.components {
 							Button(label = "Four")
 						}
 					}
+					Section(title = "Content beside text")
+					Row(gap = 8(px)) {
+						Button("Sync") {
+							start = view {
+								Badge("3")
+							}
+						}
+						Chip("Ada") {
+							start = view {
+								Avatar(name = "Ada Lovelace")
+							}
+						}
+						TextField(counter.query, placeholder = "Search") {
+							end = view {
+								Badge("new")
+							}
+						}
+					}
+					Dropdown(["Small", "Medium", "Large"], selected = counter.font) {
+						rowRenderer = (it RowItem<string>) => view {
+							Badge(it.content[:1])
+							Text(it.content)
+						}
+					}
+					Tabs(current = counter.tab) {
+						Tab("Home") {
+							heading = view {
+								Icon("menu")
+								Text("Home")
+							}
+							Text("The first tab's title is made of an icon and a text.")
+						}
+						Tab("Notes") {
+							Text("The second tab's title is its text.")
+						}
+					}
+					Section(title = "Colour picker and well")
+					Row(gap = 24(px)) {
+						ColorPicker(value = counter.accent, swatches = [UI.theme().palette.accent, UI.theme().palette.success, UI.theme().palette.warning, UI.theme().palette.danger])
+						Column(gap = 8(px)) {
+							Row(gap = 8(px), style = {align: Align{horizontal: Alignment.Start, vertical: Alignment.Center}}) {
+								ColorWell(value = counter.paint)
+								Text("A well opens a picker under it.")
+							}
+							Text("Picked: {counter.accent.css(ColorFormat.Hex)} and {counter.paint.css(ColorFormat.Hex)}")
+						}
+					}
+					Section(title = "Stepper")
+					Stepper(current = counter.stage, onSelect = goToStage) {
+						Step("Account") {
+							Text("Who you are.")
+						}
+						Step("Plan", optional = true) {
+							Text("What you pay for; you may leave it out.")
+						}
+						Step("Payment", error = counter.stage == 2 ?? ("Card declined", "")) {
+							Text("How you pay.")
+						}
+						Step("Done") {
+							Text("All set.")
+						}
+					}
+					Button("Next step", onClick = nextStage)
+					Section(title = "Chart")
+					Chart(viewport = counter.shown, onPointSelected = pickPoint) {
+						AreaSeries(sales, xs = months, label = "Sales")
+						LineSeries(waveYs, xs = waveXs, label = "Load")
+						Axis(side = AxisSide.Bottom, label = "month")
+						Axis(side = AxisSide.Left, grid = true)
+						Legend()
+					}
+					Text("The wheel zooms round the pointer, a drag pans, Home fits the data again. Clicked: {counter.point}.")
+					Section(title = "Map")
+					MapView(center = counter.center, zoom = counter.zoom, tiles = mapTiles) {
+						Polyline(walk)
+						Marker(square)
+					}
+					Text("A drag pans, the wheel or a double click zooms; tiles come from OpenStreetMap. Zoom {"%.1f".format(counter.zoom)}.")
+					Section(title = "Navigation")
+					Panel() {
+						Routes(history = guideHistory, style = {height: auto}) {
+							notFound = view {
+								Text("No page has that path.")
+								Link("Back to the start", to = "/")
+							}
+						}
+					}
 					Section(title = "Palette")
 					Shelf() {
 						let list = [
@@ -1068,7 +1283,7 @@ application ComponentsShowcase {
 	// window is closed or Quit is chosen from the tray. Fails when the renderer or the window
 	// cannot be started.
 	async def new(args string[]) !int {
-		try UI.config(UIConfig{rendererName: "opengl", showFPS: true})
+		try UI.config(UIConfig{rendererName: "opengl", showFPS: false})
 		try await UI.start()
 		let window = new renderer.WindowConfig("ADM components", 900, 640)
 		window.icon = appIcon()
