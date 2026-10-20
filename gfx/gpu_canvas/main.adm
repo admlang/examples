@@ -14,6 +14,7 @@ module demo.gpu_canvas {
 		std.math.geom::(Circle, Path, Point, Rect, Vec2, Vec4)
 		std.time
 		std.ui
+		std.ui.styles::(Box, fill)
 		std.units::(Percent, Pixels)
 	)
 
@@ -43,8 +44,11 @@ module demo.gpu_canvas {
 		view {
 
 		}
+		// The whole window: a component is drawn again only where it shows.
 		style {
-
+			Box
+			width  = fill
+			height = fill
 		}
 		type {
 			// When the animation started.
@@ -61,6 +65,8 @@ module demo.gpu_canvas {
 				let (w, h) = (size.width, size.height)
 				// Seconds since the start: everything that moves depends on it.
 				let t = float(ctx.frameTime - start) / float(1s)
+				// Another frame follows this one: the animation goes on.
+				redraw()
 
 				// The background: a gradient from corner to corner.
 				let background = linear(new Point(0.0, 0.0), new Point(w, h), [rgb(255, 220, 180), rgb(120, 160, 255)])
@@ -78,7 +84,7 @@ module demo.gpu_canvas {
 				// A card with a soft shadow: an effect applies to everything
 				// drawn between `beginGroup` and `endGroup`.
 				let card = Rect{left: 80.0, top: 80.0, right: 420.0, bottom: 300.0}
-				ctx.beginGroup(effects = [DropShadow{offset:new Vec2(6.0, 8.0), blur:12(px)}])
+				ctx.beginGroup(effects = [DropShadow{offset: new Vec2(6.0, 8.0), blur: 12(px)}])
 				ctx.fill(new Path().roundRect(card, 24(px)), rgb(255, 255, 255, 230))
 				ctx.endGroup()
 
