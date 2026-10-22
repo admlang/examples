@@ -1,0 +1,46 @@
+// Prints what a game pad does for twenty seconds, by the names games use
+// (A, LeftX, RightTrigger, ...), and rumbles while A is held.
+//
+//   adm run devices/gamepad/main.adm                      the first game pad
+//   adm run devices/gamepad/main.adm -- ID                the pad with this id
+//   adm run devices/gamepad/main.adm -- ID MAPPINGS       with gamecontrollerdb.txt
+//
+// It prints the pads first, so you can pick an id, and the GUID of the one
+// it opens: the name a line of SDL's game controller database gives it.
+application PadTest {
+	use (
+		std.devices
+		std.os
+		std.time
+	)
+
+	// The program's entry point. Fails when there is no game pad, or it
+	// stops working.
+	def new(args string[]) !int {
+		for let (_, pad) in try devices.gamepads() {
+			println("   {pad.id}  {pad.name}")
+		}
+		let mappings devices.GamepadMapping[]
+		if args.len() > 2 {
+			mappings = try devices.parseGamepadMappings(string(try os.readFile(args[2])))
+		}
+		let pad = try devices.openGamepad(args.len() > 1 ?? (args[1], ""), mappings)
+		defer pad.close()
+		println("{pad.device.name}, GUID {pad.guid}, mapping {pad.mapping.name}")
+
+		let started = time.now()
+		for time.since(started) < 20s {
+			for let (_, change) in try pad.read(100ms) {
+				println("{change.control} {"%.2f".format(change.value)}")
+				if change.control == devices.GamepadControl.A {
+					if change.value == 1.0 {
+						pad.rumble(0.6, 0.3, 500ms) onerror recover none
+					} else {
+						pad.stopRumble() onerror recover none
+					}
+				}
+			}
+		}
+		return 0
+	}
+}

@@ -1,0 +1,46 @@
+// Prints where this computer is, once a second for ten seconds, from a GPS
+// receiver: through gpsd when it runs, else the first receiver plugged in.
+//
+//   adm run devices/gps/main.adm                    the default receiver
+//   adm run devices/gps/main.adm -- ID              the receiver with this id
+//
+// It prints the receivers first, so you can pick an id; a receiver on a
+// general USB serial adapter opens by its serial port's id
+// (`serial:ttyUSB0`).
+application WhereAmI {
+	use (
+		std.devices
+		std.math.geo
+	)
+
+	// The program's entry point. Fails when there is no receiver, or it
+	// stops sending.
+	def new(args string[]) !int {
+		for let (_, receiver) in try devices.gpsDevices() {
+			println("   {receiver.id}  {receiver.name}")
+		}
+
+		// An empty id opens the default receiver.
+		let gps = try devices.openGps(args.len() > 1 ?? (args[1], ""))
+		defer gps.close()
+		println("reading {gps.device.name}")
+		for let i = 0; i < 10; i++ {
+			let fix = try gps.fix()
+			let seen = "{fix.satellitesUsed} of {fix.satellitesInView} satellites"
+			let position = fix.position
+			if position is none {
+				println("no fix yet, {seen}")
+				continue
+			}
+			let at geo.Coordinate = position
+			let altitude = fix.altitude
+			let height = ""
+			if !(altitude is none) {
+				let metres float = altitude
+				height = " {"%.1f".format(metres)} m"
+			}
+			println("{"%.6f".format(at.latitude)}, {"%.6f".format(at.longitude)}{height}, {fix.mode}, {seen}")
+		}
+		return 0
+	}
+}

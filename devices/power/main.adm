@@ -1,0 +1,45 @@
+// Prints the batteries, adapters and UPSs this computer has, then what
+// changes about them for a minute: a battery charging or running down, an
+// adapter plugged in, a mouse's battery appearing.
+//
+//   adm run devices/power/main.adm
+application PowerWatch {
+	use (
+		std.devices
+		std.time
+	)
+
+	// The program's entry point. Fails when the power sources cannot be read.
+	def new(args string[]) !int {
+		let found = try devices.powerSources()
+		println("no batteries, adapters or UPSs") when found.len() == 0
+		for let (_, source) in found {
+			println(describe(source))
+		}
+		let started = time.now()
+		for let change in try devices.powerChanges() {
+			let seen = try change
+			println("{seen.kind}: {describe(seen.source)}")
+			break when time.since(started) > 60s
+		}
+		return 0
+	}
+
+	// One line about a source: its kind, name, charge, state and time left.
+	def describe(source devices.PowerSource) string {
+		let line = "{source.id}  {source.kind}  {source.name}"
+		line += "  ({source.peripheral})" when source.peripheral != ""
+		let charge = source.charge
+		if !(charge is none) {
+			let share float = charge
+			line += "  {"%.0f".format(share * 100.0)}% {source.state}"
+		}
+		line += source.online ?? ("  online", "") when source.kind != devices.PowerKind.Battery
+		let left = source.timeToEmpty
+		if !(left is none) {
+			let time duration = left
+			line += "  {time} left"
+		}
+		return line
+	}
+}
